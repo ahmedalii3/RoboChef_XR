@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=yes"
+    >
+    <title>Three.js – Lighting & Shadows</title>
+    <style>
+      html, body { height: 100%; margin: 0; overflow: hidden; }
+      #c { width: 100%; height: 100%; display: block; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+
+    <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.182.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.182.0/examples/jsm/"
+        }
+      }
+    </script>
+
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+      import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+      import { VRButton } from 'three/addons/webxr/VRButton.js';
+      import { ARButton } from 'three/addons/webxr/ARButton.js';
+      import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+
+      function main() {
+        const canvas = document.querySelector('#c');
+
+        // ============================================================
+        // RENDERER
+        // ============================================================
+        const renderer = new THREE.WebGLRenderer({
+          canvas,
+          antialias: true,
+          alpha: true
+        });
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.xr.enabled = true;
+
+        document.body.appendChild(VRButton.createButton(renderer));
+
+        document.body.appendChild(
+          ARButton.createButton(renderer, {
+            optionalFeatures: ['dom-overlay'],
+            domOverlay: { root: document.body }
+          })
+        );
+
+        // ============================================================
+        // CAMERA
+        // ============================================================
+        const camera = new THREE.PerspectiveCamera(75, 2, 0.1, 100);
+        camera.position.set(3.0, 2.0, 4.5);
+        camera.lookAt(0, 1, 0);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 1, 0);
+        controls.update();
+
+        // ============================================================
+        // SCENE + WORLD
+        // ============================================================
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x888888);
+
+        // Put room/furniture/robot in a world group so XR spawn can be adjusted
+        const world = new THREE.Group();
+        world.position.set(0, 0, -2.0);
+        scene.add(world);
+
+        // ============================================================
+        // LIGHTING
+        // ============================================================
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.35);
+        scene.add(ambientLight);
+
+        const spotLight = new THREE.SpotLight(0xfff5e0, 6);
+        spotLight.position.set(0, 2.8, 0);
+        spotLight.angle = Math.PI / 7;
+        spotLight.penumbra = 0.25;
+        spotLight.decay = 1.5;
+        spotLight.castShadow = true;
+        spotLight.shadow.mapSize.set(2048, 2048);
+        spotLight.shadow.bias = -0.001;
+        spotLight.shadow.normalBias = 0.02;
+        spotLight.target.position.set(0, 0.7, 0);
+        scene.add(spotLight);
+        scene.add(spotLight.target);
+
+        const lampBase = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.04, 0.10, 0.12, 20),
+          new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            emissive: 0xffffcc,
+            emissiveIntensity: 0.6
+          })
+        );
+        lampBase.position.set(0, 2.78, 0);
+        world.add(lampBase);
+
+        const spotHelper = new THREE.SpotLightHelper(spotLight);
+        spotHelper.visible = false;
+        scene.add(spotHelper);
+
+        const fillLight = new THREE.DirectionalLight(0x8899cc, 0.3);
+        fillLight.position.set(-4, 6, -4);
+        scene.add(fillLight);
+
+        // ============================================================
+        // ROOM
+        // ============================================================
+        const floorTexture = new THREE.TextureLoader().load(
+          'depositphotos_138660494-stock-photo-black-marble-floor-texture-and.jpg'
+        );
+        floorTexture.wrapS = THREE.RepeatWrapping;
+        floorTexture.wrapT = THREE.RepeatWrapping;
+        floorTexture.repeat.set(3, 3);
+
+        const floorMat = new THREE.MeshStandardMaterial({ map: floorTexture });
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        world.add(floor);
+
+        const backWall = new THREE.Mesh(
+          new THREE.PlaneGeometry(6, 3),
+          new THREE.MeshStandardMaterial({
+            color: 0xcccccc,
+            side: THREE.DoubleSide
+          })
+        );
+        backWall.position.set(0, 1.5, -3);
+        backWall.receiveShadow = true;
+        world.add(backWall);
+
+        const leftWall = new THREE.Mesh(
+          new THREE.PlaneGeometry(6, 3),
+          new THREE.MeshStandardMaterial({
+            color: 0xbbbbbb,
+            side: THREE.DoubleSide
+          })
+        );
+        leftWall.rotation.y = Math.PI / 2;
+        leftWall.position.set(-3, 1.5, 0);
+        leftWall.receiveShadow = true;
+        world.add(leftWall);
+
+        // ============================================================
+        // TABLE
+        // ============================================================
+        const tableWidth = 1.2;
+        const tableDepth = 0.8;
+        const tableThickness = 0.05;
+        const tableHeight = 0.75;
+
+        const tableMat = new THREE.MeshStandardMaterial({
+          color: 0xaaaaaa,
+          metalness: 0.9,
+          roughness: 0.1
+        });
+
+        const tableTop = new THREE.Mesh(
+          new THREE.BoxGeometry(tableWidth, tableThickness, tableDepth),
+          tableMat
+        );
+        tableTop.position.y = tableHeight;
+        tableTop.castShadow = true;
+        tableTop.receiveShadow = true;
+        world.add(tableTop);
+
+        const legGeo = new THREE.CylinderGeometry(0.03, 0.03, tableHeight, 20);
+        const ox = tableWidth / 2 - 0.08;
+        const oz = tableDepth / 2 - 0.08;
+
+        [[ox, oz], [-ox, oz], [ox, -oz], [-ox, -oz]].forEach(([x, z]) => {
+          const leg = new THREE.Mesh(legGeo, tableMat);
+          leg.position.set(x, tableHeight / 2, z);
+          leg.castShadow = true;
+          leg.receiveShadow = true;
+          world.add(leg);
+        });
+
+        // ============================================================
+        // OBJECTS ON TABLE
+        // ============================================================
+        const cupMat = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0.45,
+          roughness: 0.05,
+          metalness: 0.1
+        });
+        const cup = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.06, 0.05, 0.14, 32),
+          cupMat
+        );
+        cup.position.set(0, tableHeight + tableThickness / 2 + 0.07, 0);
+        cup.castShadow = true;
+        world.add(cup);
+
+        const plateMat = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.3
+        });
+        const plate = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.12, 0.12, 0.02, 32),
+          plateMat
+        );
+        plate.position.set(
+          0.25,
+          tableHeight + tableThickness / 2 + 0.01,
+          0
+        );
+        plate.castShadow = true;
+        plate.receiveShadow = true;
+        world.add(plate);
+
+        // ============================================================
+        // CHAIRS
+        // ============================================================
+        const chairSeatGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.05, 24);
+        const chairBackGeo = new THREE.BoxGeometry(0.36, 0.35, 0.04);
+        const chairLegGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.45, 12);
+
+        const chairMat = new THREE.MeshStandardMaterial({
+          color: 0x3a2a1a,
+          roughness: 0.8
+        });
+        const chairLegMat = new THREE.MeshStandardMaterial({
+          color: 0xaaaaaa,
+          metalness: 0.9,
+          roughness: 0.1
+        });
+
+        function createChair(x, z, rotY) {
+          const group = new THREE.Group();
+
+          const addMesh = (geo, mat, px, py, pz) => {
+            const m = new THREE.Mesh(geo, mat);
+            m.position.set(px ?? 0, py ?? 0, pz ?? 0);
+            m.castShadow = true;
+            m.receiveShadow = true;
+            group.add(m);
+            return m;
+          };
+
+          addMesh(chairSeatGeo, chairMat, 0, 0.45, 0);
+          addMesh(chairBackGeo, chairMat, 0, 0.65, -0.16);
+
+          const lx = 0.12, lz = 0.12;
+          [[lx, lz], [-lx, lz], [lx, -lz], [-lx, -lz]].forEach(([cx, cz]) => {
+            addMesh(chairLegGeo, chairLegMat, cx, 0.225, cz);
+          });
+
+          group.position.set(x, 0, z);
+          group.rotation.y = rotY;
+          world.add(group);
+        }
+
+        createChair(0, 0.95, Math.PI);
+        createChair(0, -0.95, 0);
+        createChair(-0.95, 0, Math.PI / 2);
+        createChair(0.95, 0, -Math.PI / 2);
+
+        // ============================================================
+        // ROBOT
+        // ============================================================
+        const robotBodyMat = new THREE.MeshStandardMaterial({
+          color: 0x4488cc,
+          metalness: 0.7,
+          roughness: 0.3
+        });
+        const jointMat = new THREE.MeshStandardMaterial({
+          color: 0x222222,
+          metalness: 0.9,
+          roughness: 0.15
+        });
+        const eyeMat = new THREE.MeshStandardMaterial({
+          color: 0x00ffff,
+          emissive: 0x008888,
+          emissiveIntensity: 1.0
+        });
+
+        const robotRoot = new THREE.Group();
+        robotRoot.position.set(0.75, 0, 0);
+        robotRoot.rotation.y = -Math.PI / 2;
+        world.add(robotRoot);
+
+        function mkMesh(geo, mat, parent, px = 0, py = 0, pz = 0) {
+          const m = new THREE.Mesh(geo, mat);
+          m.position.set(px, py, pz);
+          m.castShadow = true;
+          m.receiveShadow = true;
+          parent.add(m);
+          return m;
+        }
+
+        const legH = 0.55;
+        const legRad = 0.07;
+        [-0.10, 0.10].forEach(x => {
+          mkMesh(
+            new THREE.CylinderGeometry(legRad, legRad * 1.2, legH, 16),
+            robotBodyMat,
+            robotRoot,
+            x,
+            legH / 2,
+            0
+          );
+        });
+
+        const hipsH = 0.22;
+        mkMesh(
+          new THREE.BoxGeometry(0.32, hipsH, 0.24),
+          robotBodyMat,
+          robotRoot,
+          0,
+          legH + hipsH / 2,
+          0
+        );
+
+        const torsoGroup = new THREE.Group();
+        torsoGroup.position.y = legH + hipsH;
+        robotRoot.add(torsoGroup);
+
+        const torsoH = 0.48;
+        mkMesh(
+          new THREE.BoxGeometry(0.40, torsoH, 0.24),
+          robotBodyMat,
+          torsoGroup,
+          0,
+          torsoH / 2,
+          0
+        );
+
+        const headGroup = new THREE.Group();
+        headGroup.position.y = torsoH;
+        torsoGroup.add(headGroup);
+        headGroup.add(new THREE.AxesHelper(0.18));
+
+        const headH = 0.24;
+        mkMesh(
+          new THREE.BoxGeometry(0.24, headH, 0.22),
+          robotBodyMat,
+          headGroup,
+          0,
+          headH / 2,
+          0
+        );
+
+        [-0.06, 0.06].forEach(ex => {
+          mkMesh(
+            new THREE.SphereGeometry(0.03, 10, 10),
+            eyeMat,
+            headGroup,
+            ex,
+            headH / 2 + 0.01,
+            0.11
+          );
+        });
+
+        [-0.06, 0.06].forEach(ax => {
+          mkMesh(
+            new THREE.CylinderGeometry(0.012, 0.012, 0.12, 8),
+            jointMat,
+            headGroup,
+            ax,
+            headH + 0.06,
+            0
+          );
+          mkMesh(
+            new THREE.SphereGeometry(0.022, 8, 8),
+            eyeMat,
+            headGroup,
+            ax,
+            headH + 0.13,
+            0
+          );
+        });
+
+        function buildArm(side) {
+          const sign = side === 'left' ? -1 : 1;
+          const shoulderX = sign * (0.40 / 2 + 0.055);
+
+          const shoulderGroup = new THREE.Group();
+          shoulderGroup.position.set(shoulderX, torsoH - 0.08, 0);
+          torsoGroup.add(shoulderGroup);
+          shoulderGroup.add(new THREE.AxesHelper(0.14));
+          mkMesh(new THREE.SphereGeometry(0.05, 12, 12), jointMat, shoulderGroup);
+
+          const upperArmH = 0.30;
+          mkMesh(
+            new THREE.BoxGeometry(0.10, upperArmH, 0.10),
+            robotBodyMat,
+            shoulderGroup,
+            0,
+            -upperArmH / 2,
+            0
+          );
+
+          const elbowGroup = new THREE.Group();
+          elbowGroup.position.y = -upperArmH;
+          shoulderGroup.add(elbowGroup);
+          elbowGroup.add(new THREE.AxesHelper(0.12));
+          mkMesh(new THREE.SphereGeometry(0.04, 12, 12), jointMat, elbowGroup);
+
+          const forearmH = 0.28;
+          mkMesh(
+            new THREE.BoxGeometry(0.08, forearmH, 0.08),
+            robotBodyMat,
+            elbowGroup,
+            0,
+            -forearmH / 2,
+            0
+          );
+
+          const handGroup = new THREE.Group();
+          handGroup.position.y = -forearmH;
+          elbowGroup.add(handGroup);
+          handGroup.add(new THREE.AxesHelper(0.10));
+          mkMesh(
+            new THREE.BoxGeometry(0.14, 0.08, 0.06),
+            robotBodyMat,
+            handGroup,
+            0,
+            -0.04,
+            0
+          );
+
+          [-0.05, 0.05].forEach(fx => {
+            mkMesh(
+              new THREE.BoxGeometry(0.03, 0.08, 0.03),
+              jointMat,
+              handGroup,
+              fx,
+              -0.11,
+              0
+            );
+          });
+
+          shoulderGroup.rotation.z = sign * 0.35;
+          elbowGroup.rotation.z = 0.0;
+
+          return { shoulderGroup, elbowGroup, handGroup };
+        }
+
+        const leftArm = buildArm('left');
+        const rightArm = buildArm('right');
+
+        // ============================================================
+        // XR CONTROLLERS
+        // ============================================================
+        const controllerModelFactory = new XRControllerModelFactory();
+
+        const controller1 = renderer.xr.getController(0);
+        const controller2 = renderer.xr.getController(1);
+        scene.add(controller1);
+        scene.add(controller2);
+
+        const controllerGrip1 = renderer.xr.getControllerGrip(0);
+        controllerGrip1.add(
+          controllerModelFactory.createControllerModel(controllerGrip1)
+        );
+        scene.add(controllerGrip1);
+
+        const controllerGrip2 = renderer.xr.getControllerGrip(1);
+        controllerGrip2.add(
+          controllerModelFactory.createControllerModel(controllerGrip2)
+        );
+        scene.add(controllerGrip2);
+
+        const rayGeometry = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(0, 0, -0.4),
+        ]);
+        const rayMaterial = new THREE.LineBasicMaterial({ color: 0xffffff });
+
+        const ray1 = new THREE.Line(rayGeometry, rayMaterial);
+        const ray2 = new THREE.Line(rayGeometry, rayMaterial);
+        controller1.add(ray1);
+        controller2.add(ray2);
+
+        // ============================================================
+        // GUI
+        // ============================================================
+        const gui = new GUI({ title: 'Scene Controls' });
+
+        const ambFolder = gui.addFolder('Ambient Light');
+        ambFolder.add(ambientLight, 'intensity', 0, 2, 0.01).name('Intensity');
+        const ambParams = { color: '#ffffff' };
+        ambFolder.addColor(ambParams, 'color').name('Color')
+          .onChange(v => ambientLight.color.set(v));
+
+        const spotFolder = gui.addFolder('Spot Light');
+        spotFolder.add(spotLight, 'intensity', 0, 15, 0.1).name('Intensity');
+        const spotParams = { color: '#fff5e0' };
+        spotFolder.addColor(spotParams, 'color').name('Color')
+          .onChange(v => spotLight.color.set(v));
+        spotFolder.add(spotLight, 'angle', 0.05, Math.PI / 3, 0.01).name('Angle')
+          .onChange(() => spotHelper.update());
+        spotFolder.add(spotLight, 'penumbra', 0, 1, 0.01).name('Penumbra');
+        spotFolder.add(spotLight, 'decay', 0, 3, 0.05).name('Decay');
+        spotFolder.add(spotLight, 'castShadow').name('Cast Shadow');
+
+        const shadowSizes = { '512': 512, '1024': 1024, '2048': 2048, '4096': 4096 };
+        const shadowParams = { mapSize: '2048' };
+        spotFolder.add(shadowParams, 'mapSize', Object.keys(shadowSizes)).name('Shadow Map Size')
+          .onChange(v => {
+            const s = shadowSizes[v];
+            spotLight.shadow.mapSize.set(s, s);
+            if (spotLight.shadow.map) {
+              spotLight.shadow.map.dispose();
+              spotLight.shadow.map = null;
+            }
+          });
+        spotFolder.add(spotHelper, 'visible').name('Show Helper');
+
+        const robotFolder = gui.addFolder('Robot Body Material');
+        const robotParams = { color: '#4488cc' };
+        robotFolder.addColor(robotParams, 'color').name('Color')
+          .onChange(v => robotBodyMat.color.set(v));
+        robotFolder.add(robotBodyMat, 'metalness', 0, 1, 0.01).name('Metalness');
+        robotFolder.add(robotBodyMat, 'roughness', 0, 1, 0.01).name('Roughness');
+
+        const jointFolder = gui.addFolder('Robot Joint Material');
+        const jointParams = { color: '#222222' };
+        jointFolder.addColor(jointParams, 'color').name('Color')
+          .onChange(v => jointMat.color.set(v));
+        jointFolder.add(jointMat, 'metalness', 0, 1, 0.01).name('Metalness');
+        jointFolder.add(jointMat, 'roughness', 0, 1, 0.01).name('Roughness');
+
+        const eyeFolder = gui.addFolder('Robot Eyes / Antennas');
+        const eyeParams = { color: '#00ffff', emissive: '#008888' };
+        eyeFolder.addColor(eyeParams, 'color').name('Color')
+          .onChange(v => eyeMat.color.set(v));
+        eyeFolder.addColor(eyeParams, 'emissive').name('Emissive')
+          .onChange(v => eyeMat.emissive.set(v));
+        eyeFolder.add(eyeMat, 'emissiveIntensity', 0, 3, 0.05).name('Emissive Intensity');
+
+        const tableFolder = gui.addFolder('Table Material');
+        tableFolder.add(tableMat, 'metalness', 0, 1, 0.01).name('Metalness');
+        tableFolder.add(tableMat, 'roughness', 0, 1, 0.01).name('Roughness');
+
+        const floorFolder = gui.addFolder('Floor Material');
+        floorFolder.add(floorMat, 'roughness', 0, 1, 0.01).name('Roughness');
+        floorFolder.add(floorMat, 'metalness', 0, 1, 0.01).name('Metalness');
+
+        const teleop = {
+          enabled: true,
+          headTrackXR: false,
+          ikReachScale: 0.95,
+          showXRControllers: true
+        };
+
+        const xrFolder = gui.addFolder('XR Tele-op');
+        xrFolder.add(teleop, 'enabled').name('Enable Tele-op');
+        xrFolder.add(teleop, 'headTrackXR').name('Track Head');
+        xrFolder.add(teleop, 'ikReachScale', 0.7, 1.0, 0.01).name('Reach Scale');
+        xrFolder.add(teleop, 'showXRControllers').name('Show Controllers')
+          .onChange(v => {
+            controllerGrip1.visible = v;
+            controllerGrip2.visible = v;
+            controller1.visible = v;
+            controller2.visible = v;
+          });
+
+        const worldFolder = gui.addFolder('XR World Offset');
+        const worldParams = {
+          x: world.position.x,
+          y: world.position.y,
+          z: world.position.z
+        };
+        worldFolder.add(worldParams, 'x', -3, 3, 0.01).name('World X')
+          .onChange(v => world.position.x = v);
+        worldFolder.add(worldParams, 'y', -2, 2, 0.01).name('World Y')
+          .onChange(v => world.position.y = v);
+        worldFolder.add(worldParams, 'z', -5, 1, 0.01).name('World Z')
+          .onChange(v => world.position.z = v);
+
+        // ============================================================
+        // HELPERS / IK
+        // ============================================================
+        const UPPER_ARM_LEN = 0.30;
+        const FOREARM_LEN = 0.28;
+
+        const tmpWorld = new THREE.Vector3();
+
+        function clamp(v, lo, hi) {
+          return Math.max(lo, Math.min(hi, v));
+        }
+
+        function setWallTransparency(isAR) {
+          const wallOpacity = isAR ? 0.08 : 1.0;
+
+          backWall.material.transparent = isAR;
+          backWall.material.opacity = wallOpacity;
+          backWall.material.depthWrite = !isAR;
+
+          leftWall.material.transparent = isAR;
+          leftWall.material.opacity = wallOpacity;
+          leftWall.material.depthWrite = !isAR;
+        }
+
+        function worldToTorsoLocal(worldPos) {
+          return torsoGroup.worldToLocal(worldPos.clone());
+        }
+
+        function solveArmIK(arm, targetWorld, side) {
+          const sideSign = side === 'left' ? -1 : 1;
+
+          const targetTorso = worldToTorsoLocal(targetWorld);
+          const shoulderPos = arm.shoulderGroup.position.clone();
+          const v = targetTorso.sub(shoulderPos);
+
+          const yaw = Math.atan2(v.z, sideSign * Math.max(0.0001, Math.abs(v.x)));
+
+          const horizontal = Math.sqrt(v.x * v.x + v.z * v.z);
+          const verticalDown = -v.y;
+          let d = Math.sqrt(horizontal * horizontal + verticalDown * verticalDown);
+
+          const maxReach = (UPPER_ARM_LEN + FOREARM_LEN) * teleop.ikReachScale;
+          d = clamp(d, 0.05, maxReach);
+
+          const cosElbow =
+            (UPPER_ARM_LEN * UPPER_ARM_LEN +
+              FOREARM_LEN * FOREARM_LEN -
+              d * d) /
+            (2 * UPPER_ARM_LEN * FOREARM_LEN);
+
+          const elbowInterior = Math.acos(clamp(cosElbow, -1, 1));
+          const elbowX = -(Math.PI - elbowInterior);
+
+          const cosShoulder =
+            (UPPER_ARM_LEN * UPPER_ARM_LEN +
+              d * d -
+              FOREARM_LEN * FOREARM_LEN) /
+            (2 * UPPER_ARM_LEN * d);
+
+          const shoulderOffset = Math.acos(clamp(cosShoulder, -1, 1));
+          const targetAngle = Math.atan2(horizontal, verticalDown);
+          const shoulderX = -(targetAngle - shoulderOffset);
+
+          arm.shoulderGroup.rotation.x = THREE.MathUtils.clamp(shoulderX, -1.6, 1.2);
+          arm.shoulderGroup.rotation.y = THREE.MathUtils.clamp(yaw, -1.4, 1.4);
+          arm.elbowGroup.rotation.x = THREE.MathUtils.clamp(elbowX, -2.2, 0.0);
+        }
+
+        // ============================================================
+        // XR SESSION ADJUSTMENT
+        // ============================================================
+        renderer.xr.addEventListener('sessionstart', () => {
+          world.position.set(0, 0, -2.0);
+          worldParams.x = world.position.x;
+          worldParams.y = world.position.y;
+          worldParams.z = world.position.z;
+
+          controllerGrip1.visible = teleop.showXRControllers;
+          controllerGrip2.visible = teleop.showXRControllers;
+          controller1.visible = teleop.showXRControllers;
+          controller2.visible = teleop.showXRControllers;
+        });
+
+        // ============================================================
+        // RENDER LOOP
+        // ============================================================
+        function resizeRendererToDisplaySize(renderer) {
+          const canvas = renderer.domElement;
+          const w = canvas.clientWidth;
+          const h = canvas.clientHeight;
+          const needResize = canvas.width !== w || canvas.height !== h;
+          if (needResize) renderer.setSize(w, h, false);
+          return needResize;
+        }
+
+        function render() {
+          if (resizeRendererToDisplaySize(renderer)) {
+            camera.aspect = canvas.clientWidth / canvas.clientHeight;
+            camera.updateProjectionMatrix();
+          }
+
+          const t = Date.now() * 0.001;
+
+          const isXR = renderer.xr.isPresenting;
+          const blendMode = renderer.xr.getEnvironmentBlendMode?.();
+          const isAR = isXR && blendMode === 'alpha-blend';
+
+          setWallTransparency(isAR);
+
+          if (!isXR || !teleop.enabled) {
+            headGroup.rotation.y = Math.sin(t * 0.8) * 0.4;
+
+            const cycle = (t * 0.1) % 1;
+            let raise = 0;
+            let bend = 0;
+            let twist = 0;
+
+            if (cycle < 0.25) {
+              const p = cycle / 0.25;
+              raise = -p * 1.0;
+            } else if (cycle < 0.5) {
+              const p = (cycle - 0.25) / 0.25;
+              raise = -1.0;
+              bend = p * 0.9;
+            } else if (cycle < 0.75) {
+              const p = (cycle - 0.5) / 0.25;
+              raise = -1.0;
+              bend = 0.9;
+              twist = Math.sin(p * Math.PI * 2) * 0.5;
+            } else {
+              const p = (cycle - 0.75) / 0.25;
+              raise = -1.0 * (1 - p);
+              bend = 0.9 * (1 - p);
+            }
+
+            rightArm.shoulderGroup.rotation.x = raise;
+            rightArm.elbowGroup.rotation.x = -bend;
+            rightArm.shoulderGroup.rotation.y = twist;
+          } else {
+            controllerGrip1.getWorldPosition(tmpWorld);
+            solveArmIK(leftArm, tmpWorld, 'left');
+
+            controllerGrip2.getWorldPosition(tmpWorld);
+            solveArmIK(rightArm, tmpWorld, 'right');
+
+            if (teleop.headTrackXR) {
+              const xrCam = renderer.xr.getCamera();
+              xrCam.getWorldPosition(tmpWorld);
+              const headLocal = torsoGroup.worldToLocal(tmpWorld.clone());
+
+              headGroup.rotation.y = THREE.MathUtils.clamp(
+                Math.atan2(headLocal.x, Math.max(0.0001, headLocal.z)),
+                -Math.PI / 2,
+                Math.PI / 2
+              );
+            }
+          }
+
+          if (spotHelper.visible) spotHelper.update();
+
+          controls.enabled = !renderer.xr.isPresenting;
+          if (controls.enabled) controls.update();
+
+          renderer.render(scene, camera);
+        }
+
+        renderer.setAnimationLoop(render);
+      }
+
+      main();
+    </script>
+  </body>
+</html>
