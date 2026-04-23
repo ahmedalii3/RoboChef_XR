@@ -558,14 +558,14 @@
         const teleop = {
           enabled: true,
           headTrackXR: false,
-          ikReachScale: 1.0,
+          ikReachScale: 1.8,
           showXRControllers: true
         };
 
         const xrFolder = gui.addFolder('XR Tele-op');
         xrFolder.add(teleop, 'enabled').name('Enable Tele-op');
         xrFolder.add(teleop, 'headTrackXR').name('Track Head');
-        xrFolder.add(teleop, 'ikReachScale', 0.7, 1.0, 0.01).name('Reach Scale');
+xrFolder.add(teleop, 'ikReachScale', 0.7, 1.2, 0.01).name('Reach Scale');
         xrFolder.add(teleop, 'showXRControllers').name('Show Controllers')
           .onChange(v => {
             controllerGrip1.visible = v;
@@ -615,13 +615,14 @@
           return torsoGroup.worldToLocal(worldPos.clone());
         }
 
-        function solveArmIK(arm, targetWorld, side) {
+       function solveArmIK(arm, targetWorld, side) {
   const sideSign = side === 'left' ? -1 : 1;
 
   const targetTorso = worldToTorsoLocal(targetWorld);
   const shoulderPos = arm.shoulderGroup.position.clone();
   const v = targetTorso.sub(shoulderPos);
 
+  // swivel arm toward target
   const yaw = Math.atan2(v.z, sideSign * Math.max(0.0001, Math.abs(v.x)));
 
   const horizontal = Math.sqrt(v.x * v.x + v.z * v.z);
@@ -629,7 +630,7 @@
   let d = Math.sqrt(horizontal * horizontal + verticalDown * verticalDown);
 
   const maxReach = (UPPER_ARM_LEN + FOREARM_LEN) * teleop.ikReachScale;
-  d = clamp(d, 0.03, maxReach);
+  d = clamp(d, 0.03, maxReach - 0.001);
 
   const cosElbow =
     (UPPER_ARM_LEN * UPPER_ARM_LEN +
@@ -648,13 +649,14 @@
 
   const shoulderOffset = Math.acos(clamp(cosShoulder, -1, 1));
 
-  // better handling for targets both above and below shoulder
+  // better above/below movement
   const targetAngle = Math.atan2(horizontal, verticalDown);
   const shoulderX = -(targetAngle - shoulderOffset);
 
-  arm.shoulderGroup.rotation.x = THREE.MathUtils.clamp(shoulderX, -2.6, 1.6);
-  arm.shoulderGroup.rotation.y = THREE.MathUtils.clamp(yaw, -2.0, 2.0);
-  arm.elbowGroup.rotation.x = THREE.MathUtils.clamp(elbowX, -2.8, 0.2);
+  // freer joint limits
+  arm.shoulderGroup.rotation.x = THREE.MathUtils.clamp(shoulderX, -3.0, 2.6);
+  arm.shoulderGroup.rotation.y = THREE.MathUtils.clamp(yaw, -2.8, 2.8);
+  arm.elbowGroup.rotation.x = THREE.MathUtils.clamp(elbowX, -3.05, 0.15);
 }
 
         // ============================================================
