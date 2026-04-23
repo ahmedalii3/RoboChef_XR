@@ -53,7 +53,7 @@
       import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
       import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
       import { VRButton } from 'three/addons/webxr/VRButton.js';
-      import { ARButton } from 'three/addons/webxr/ARButton.js';
+      // import { ARButton } from 'three/addons/webxr/ARButton.js';
       import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 
       function main() {
@@ -80,40 +80,41 @@
         //     domOverlay: { root: document.body }
         //   })
         // );
-        async function setupXRButton() {
-        if (!navigator.xr) {
-          console.warn('WebXR not available in this browser.');
-            document.body.appendChild(VRButton.createButton(renderer));
-            return;
-          }
+        document.body.appendChild(VRButton.createButton(renderer));
+        // async function setupXRButton() {
+        // if (!navigator.xr) {
+        //   console.warn('WebXR not available in this browser.');
+        //     document.body.appendChild(VRButton.createButton(renderer));
+        //     return;
+        //   }
 
-          let arSupported = false;
+        //   let arSupported = false;
 
-          try {
-            arSupported = await navigator.xr.isSessionSupported('immersive-ar');
-          } catch (e) {
-            console.warn('Could not check immersive-ar support:', e);
-          }
+        //   try {
+        //     arSupported = await navigator.xr.isSessionSupported('immersive-ar');
+        //   } catch (e) {
+        //     console.warn('Could not check immersive-ar support:', e);
+        //   }
 
-          if (arSupported) {
-            console.log('immersive-ar supported: using ARButton');
+        //   if (arSupported) {
+        //     console.log('immersive-ar supported: using ARButton');
 
-            document.body.appendChild(
-              ARButton.createButton(renderer, {
-                optionalFeatures: ['dom-overlay'],
-                domOverlay: { root: document.body }
-              })
-            );
-          } else {
-            console.log('immersive-ar not supported: using VRButton');
+        //     document.body.appendChild(
+        //       ARButton.createButton(renderer, {
+        //         optionalFeatures: ['dom-overlay'],
+        //         domOverlay: { root: document.body }
+        //       })
+        //     );
+        //   } else {
+        //     console.log('immersive-ar not supported: using VRButton');
 
-            document.body.appendChild(
-              VRButton.createButton(renderer)
-            );
-          }
-        }
+        //     document.body.appendChild(
+        //       VRButton.createButton(renderer)
+        //     );
+        //   }
+        // }
 
-        setupXRButton();
+        // setupXRButton();
         // ============================================================
         // CAMERA
         // ============================================================
