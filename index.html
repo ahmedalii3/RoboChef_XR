@@ -10,10 +10,26 @@
     <style>
       html, body { height: 100%; margin: 0; overflow: hidden; }
       #c { width: 100%; height: 100%; display: block; }
+
+      #togglePassthrough {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        z-index: 30;
+        padding: 12px 16px;
+        font-size: 16px;
+        border: none;
+        border-radius: 10px;
+        background: rgba(0, 0, 0, 0.65);
+        color: white;
+        display: none;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
     <canvas id="c"></canvas>
+    <button id="togglePassthrough">Passthrough: ON</button>
 
     <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
     <script type="importmap">
@@ -35,6 +51,7 @@
 
       function main() {
         const canvas = document.querySelector('#c');
+        const passthroughBtn = document.getElementById('togglePassthrough');
 
         // ============================================================
         // RENDERER
@@ -74,10 +91,17 @@
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x888888);
 
-        // Put room/furniture/robot in a world group so XR spawn can be adjusted
         const world = new THREE.Group();
         world.position.set(0, 0, -2.0);
         scene.add(world);
+
+        // only things we want to hide in passthrough-style mode
+        const roomGroup = new THREE.Group();
+        world.add(roomGroup);
+
+        const xrView = {
+          passthroughStyle: true
+        };
 
         // ============================================================
         // LIGHTING
@@ -107,7 +131,7 @@
           })
         );
         lampBase.position.set(0, 2.78, 0);
-        world.add(lampBase);
+        roomGroup.add(lampBase);
 
         const spotHelper = new THREE.SpotLightHelper(spotLight);
         spotHelper.visible = false;
@@ -131,7 +155,7 @@
         const floor = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), floorMat);
         floor.rotation.x = -Math.PI / 2;
         floor.receiveShadow = true;
-        world.add(floor);
+        roomGroup.add(floor);
 
         const backWall = new THREE.Mesh(
           new THREE.PlaneGeometry(6, 3),
@@ -142,7 +166,7 @@
         );
         backWall.position.set(0, 1.5, -3);
         backWall.receiveShadow = true;
-        world.add(backWall);
+        roomGroup.add(backWall);
 
         const leftWall = new THREE.Mesh(
           new THREE.PlaneGeometry(6, 3),
@@ -154,7 +178,7 @@
         leftWall.rotation.y = Math.PI / 2;
         leftWall.position.set(-3, 1.5, 0);
         leftWall.receiveShadow = true;
-        world.add(leftWall);
+        roomGroup.add(leftWall);
 
         // ============================================================
         // TABLE
@@ -265,7 +289,7 @@
 
           group.position.set(x, 0, z);
           group.rotation.y = rotY;
-          world.add(group);
+          roomGroup.add(group);
         }
 
         createChair(0, 0.95, Math.PI);
@@ -558,14 +582,14 @@
         const teleop = {
           enabled: true,
           headTrackXR: false,
-          ikReachScale: 1.8,
+          ikReachScale: 1.08,
           showXRControllers: true
         };
 
         const xrFolder = gui.addFolder('XR Tele-op');
         xrFolder.add(teleop, 'enabled').name('Enable Tele-op');
         xrFolder.add(teleop, 'headTrackXR').name('Track Head');
-xrFolder.add(teleop, 'ikReachScale', 0.7, 1.2, 0.01).name('Reach Scale');
+        xrFolder.add(teleop, 'ikReachScale', 0.7, 1.2, 0.01).name('Reach Scale');
         xrFolder.add(teleop, 'showXRControllers').name('Show Controllers')
           .onChange(v => {
             controllerGrip1.visible = v;
@@ -599,65 +623,72 @@ xrFolder.add(teleop, 'ikReachScale', 0.7, 1.2, 0.01).name('Reach Scale');
           return Math.max(lo, Math.min(hi, v));
         }
 
-        function setWallTransparency(isAR) {
-          const wallOpacity = isAR ? 0.08 : 1.0;
-
-          backWall.material.transparent = isAR;
-          backWall.material.opacity = wallOpacity;
-          backWall.material.depthWrite = !isAR;
-
-          leftWall.material.transparent = isAR;
-          leftWall.material.opacity = wallOpacity;
-          leftWall.material.depthWrite = !isAR;
-        }
-
         function worldToTorsoLocal(worldPos) {
           return torsoGroup.worldToLocal(worldPos.clone());
         }
 
-       function solveArmIK(arm, targetWorld, side) {
-  const sideSign = side === 'left' ? -1 : 1;
+        function solveArmIK(arm, targetWorld, side) {
+          const sideSign = side === 'left' ? -1 : 1;
 
-  const targetTorso = worldToTorsoLocal(targetWorld);
-  const shoulderPos = arm.shoulderGroup.position.clone();
-  const v = targetTorso.sub(shoulderPos);
+          const targetTorso = worldToTorsoLocal(targetWorld);
+          const shoulderPos = arm.shoulderGroup.position.clone();
+          const v = targetTorso.sub(shoulderPos);
 
-  // swivel arm toward target
-  const yaw = Math.atan2(v.z, sideSign * Math.max(0.0001, Math.abs(v.x)));
+          const yaw = Math.atan2(v.z, sideSign * Math.max(0.0001, Math.abs(v.x)));
 
-  const horizontal = Math.sqrt(v.x * v.x + v.z * v.z);
-  const verticalDown = -v.y;
-  let d = Math.sqrt(horizontal * horizontal + verticalDown * verticalDown);
+          const horizontal = Math.sqrt(v.x * v.x + v.z * v.z);
+          const verticalDown = -v.y;
+          let d = Math.sqrt(horizontal * horizontal + verticalDown * verticalDown);
 
-  const maxReach = (UPPER_ARM_LEN + FOREARM_LEN) * teleop.ikReachScale;
-  d = clamp(d, 0.03, maxReach - 0.001);
+          const maxReach = (UPPER_ARM_LEN + FOREARM_LEN) * teleop.ikReachScale;
+          d = clamp(d, 0.03, maxReach - 0.001);
 
-  const cosElbow =
-    (UPPER_ARM_LEN * UPPER_ARM_LEN +
-      FOREARM_LEN * FOREARM_LEN -
-      d * d) /
-    (2 * UPPER_ARM_LEN * FOREARM_LEN);
+          const cosElbow =
+            (UPPER_ARM_LEN * UPPER_ARM_LEN +
+              FOREARM_LEN * FOREARM_LEN -
+              d * d) /
+            (2 * UPPER_ARM_LEN * FOREARM_LEN);
 
-  const elbowInterior = Math.acos(clamp(cosElbow, -1, 1));
-  const elbowX = -(Math.PI - elbowInterior);
+          const elbowInterior = Math.acos(clamp(cosElbow, -1, 1));
+          const elbowX = -(Math.PI - elbowInterior);
 
-  const cosShoulder =
-    (UPPER_ARM_LEN * UPPER_ARM_LEN +
-      d * d -
-      FOREARM_LEN * FOREARM_LEN) /
-    (2 * UPPER_ARM_LEN * d);
+          const cosShoulder =
+            (UPPER_ARM_LEN * UPPER_ARM_LEN +
+              d * d -
+              FOREARM_LEN * FOREARM_LEN) /
+            (2 * UPPER_ARM_LEN * d);
 
-  const shoulderOffset = Math.acos(clamp(cosShoulder, -1, 1));
+          const shoulderOffset = Math.acos(clamp(cosShoulder, -1, 1));
 
-  // better above/below movement
-  const targetAngle = Math.atan2(horizontal, verticalDown);
-  const shoulderX = -(targetAngle - shoulderOffset);
+          const targetAngle = Math.atan2(horizontal, verticalDown);
+          const shoulderX = -(targetAngle - shoulderOffset);
 
-  // freer joint limits
-  arm.shoulderGroup.rotation.x = THREE.MathUtils.clamp(shoulderX, -3.0, 2.6);
-  arm.shoulderGroup.rotation.y = THREE.MathUtils.clamp(yaw, -2.8, 2.8);
-  arm.elbowGroup.rotation.x = THREE.MathUtils.clamp(elbowX, -3.05, 0.15);
-}
+          arm.shoulderGroup.rotation.x = THREE.MathUtils.clamp(shoulderX, -3.0, 2.6);
+          arm.shoulderGroup.rotation.y = THREE.MathUtils.clamp(yaw, -2.8, 2.8);
+          arm.elbowGroup.rotation.x = THREE.MathUtils.clamp(elbowX, -3.05, 0.15);
+        }
+
+        function applyPassthroughMode(isAR) {
+          const usePassthroughStyle = isAR && xrView.passthroughStyle;
+
+          scene.background = usePassthroughStyle
+            ? null
+            : new THREE.Color(0x888888);
+
+          roomGroup.visible = !usePassthroughStyle;
+
+          passthroughBtn.textContent = `Passthrough: ${usePassthroughStyle ? 'ON' : 'OFF'}`;
+        }
+
+        passthroughBtn.addEventListener('click', () => {
+          xrView.passthroughStyle = !xrView.passthroughStyle;
+
+          const isXR = renderer.xr.isPresenting;
+          const blendMode = renderer.xr.getEnvironmentBlendMode?.();
+          const isAR = isXR && blendMode === 'alpha-blend';
+
+          applyPassthroughMode(isAR);
+        });
 
         // ============================================================
         // XR SESSION ADJUSTMENT
@@ -672,6 +703,18 @@ xrFolder.add(teleop, 'ikReachScale', 0.7, 1.2, 0.01).name('Reach Scale');
           controllerGrip2.visible = teleop.showXRControllers;
           controller1.visible = teleop.showXRControllers;
           controller2.visible = teleop.showXRControllers;
+
+          const blendMode = renderer.xr.getEnvironmentBlendMode?.();
+          const isAR = blendMode === 'alpha-blend';
+
+          passthroughBtn.style.display = isAR ? 'block' : 'none';
+          applyPassthroughMode(isAR);
+        });
+
+        renderer.xr.addEventListener('sessionend', () => {
+          passthroughBtn.style.display = 'none';
+          roomGroup.visible = true;
+          scene.background = new THREE.Color(0x888888);
         });
 
         // ============================================================
@@ -698,7 +741,7 @@ xrFolder.add(teleop, 'ikReachScale', 0.7, 1.2, 0.01).name('Reach Scale');
           const blendMode = renderer.xr.getEnvironmentBlendMode?.();
           const isAR = isXR && blendMode === 'alpha-blend';
 
-          setWallTransparency(isAR);
+          applyPassthroughMode(isAR);
 
           if (!isXR || !teleop.enabled) {
             headGroup.rotation.y = Math.sin(t * 0.8) * 0.4;
