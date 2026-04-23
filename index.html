@@ -734,16 +734,7 @@
             camera.aspect = canvas.clientWidth / canvas.clientHeight;
             camera.updateProjectionMatrix();
           }
-          if (isXR) {
-            const p1 = new THREE.Vector3();
-            const p2 = new THREE.Vector3();
-          
-            controllerGrip1.getWorldPosition(p1);
-            controllerGrip2.getWorldPosition(p2);
-          
-            console.log('controller 1', p1.x, p1.y, p1.z);
-            console.log('controller 2', p2.x, p2.y, p2.z);
-          }
+   
 
           const t = Date.now() * 0.001;
 
