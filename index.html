@@ -558,7 +558,7 @@
         const teleop = {
           enabled: true,
           headTrackXR: false,
-          ikReachScale: 0.95,
+          ikReachScale: 1.0,
           showXRControllers: true
         };
 
@@ -616,50 +616,52 @@
         }
 
         function solveArmIK(arm, targetWorld, side) {
-          const sideSign = side === 'left' ? -1 : 1;
+  const sideSign = side === 'left' ? -1 : 1;
 
-          const targetTorso = worldToTorsoLocal(targetWorld);
-          const shoulderPos = arm.shoulderGroup.position.clone();
-          const v = targetTorso.sub(shoulderPos);
+  const targetTorso = worldToTorsoLocal(targetWorld);
+  const shoulderPos = arm.shoulderGroup.position.clone();
+  const v = targetTorso.sub(shoulderPos);
 
-          const yaw = Math.atan2(v.z, sideSign * Math.max(0.0001, Math.abs(v.x)));
+  const yaw = Math.atan2(v.z, sideSign * Math.max(0.0001, Math.abs(v.x)));
 
-          const horizontal = Math.sqrt(v.x * v.x + v.z * v.z);
-          const verticalDown = -v.y;
-          let d = Math.sqrt(horizontal * horizontal + verticalDown * verticalDown);
+  const horizontal = Math.sqrt(v.x * v.x + v.z * v.z);
+  const verticalDown = -v.y;
+  let d = Math.sqrt(horizontal * horizontal + verticalDown * verticalDown);
 
-          const maxReach = (UPPER_ARM_LEN + FOREARM_LEN) * teleop.ikReachScale;
-          d = clamp(d, 0.05, maxReach);
+  const maxReach = (UPPER_ARM_LEN + FOREARM_LEN) * teleop.ikReachScale;
+  d = clamp(d, 0.03, maxReach);
 
-          const cosElbow =
-            (UPPER_ARM_LEN * UPPER_ARM_LEN +
-              FOREARM_LEN * FOREARM_LEN -
-              d * d) /
-            (2 * UPPER_ARM_LEN * FOREARM_LEN);
+  const cosElbow =
+    (UPPER_ARM_LEN * UPPER_ARM_LEN +
+      FOREARM_LEN * FOREARM_LEN -
+      d * d) /
+    (2 * UPPER_ARM_LEN * FOREARM_LEN);
 
-          const elbowInterior = Math.acos(clamp(cosElbow, -1, 1));
-          const elbowX = -(Math.PI - elbowInterior);
+  const elbowInterior = Math.acos(clamp(cosElbow, -1, 1));
+  const elbowX = -(Math.PI - elbowInterior);
 
-          const cosShoulder =
-            (UPPER_ARM_LEN * UPPER_ARM_LEN +
-              d * d -
-              FOREARM_LEN * FOREARM_LEN) /
-            (2 * UPPER_ARM_LEN * d);
+  const cosShoulder =
+    (UPPER_ARM_LEN * UPPER_ARM_LEN +
+      d * d -
+      FOREARM_LEN * FOREARM_LEN) /
+    (2 * UPPER_ARM_LEN * d);
 
-          const shoulderOffset = Math.acos(clamp(cosShoulder, -1, 1));
-          const targetAngle = Math.atan2(horizontal, verticalDown);
-          const shoulderX = -(targetAngle - shoulderOffset);
+  const shoulderOffset = Math.acos(clamp(cosShoulder, -1, 1));
 
-          arm.shoulderGroup.rotation.x = THREE.MathUtils.clamp(shoulderX, -1.6, 1.2);
-          arm.shoulderGroup.rotation.y = THREE.MathUtils.clamp(yaw, -1.4, 1.4);
-          arm.elbowGroup.rotation.x = THREE.MathUtils.clamp(elbowX, -2.2, 0.0);
-        }
+  // better handling for targets both above and below shoulder
+  const targetAngle = Math.atan2(horizontal, verticalDown);
+  const shoulderX = -(targetAngle - shoulderOffset);
+
+  arm.shoulderGroup.rotation.x = THREE.MathUtils.clamp(shoulderX, -2.6, 1.6);
+  arm.shoulderGroup.rotation.y = THREE.MathUtils.clamp(yaw, -2.0, 2.0);
+  arm.elbowGroup.rotation.x = THREE.MathUtils.clamp(elbowX, -2.8, 0.2);
+}
 
         // ============================================================
         // XR SESSION ADJUSTMENT
         // ============================================================
         renderer.xr.addEventListener('sessionstart', () => {
-          world.position.set(0, -2.0, -2.0);
+          world.position.set(0, -1.5, -1.5);
           worldParams.x = world.position.x;
           worldParams.y = world.position.y;
           worldParams.z = world.position.z;
