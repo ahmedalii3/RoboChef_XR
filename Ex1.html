@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Three.js Kitchen Scene</title>
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+      }
+      #c {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+
+    <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.182.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.182.0/examples/jsm/"
+        }
+      }
+    </script>
+
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+      function main() {
+        const canvas = document.querySelector('#c');
+        const renderer = new THREE.WebGLRenderer({canvas, antialias: true});
+
+        // Camera
+        const camera = new THREE.PerspectiveCamera(75, 2, 0.1, 100);
+        camera.position.set(5, 5, 5);
+        camera.lookAt(0, 0, 0);
+
+        // Controls
+        const controls = new OrbitControls(camera, renderer.domElement);
+
+        // Scene
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xaaaaaa);
+
+        // Lighting
+        const light = new THREE.DirectionalLight(0xffffff, 1.5);
+        light.position.set(5, 10, 7);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x404040, 2));
+
+        // Point light above table
+        const pointLight = new THREE.PointLight(0xfff5e0, 2, 15);
+        pointLight.position.set(0, 4, 0);
+        scene.add(pointLight);
+
+        // Fill light from opposite side
+        const fillLight = new THREE.DirectionalLight(0x8888ff, 0.5);
+        fillLight.position.set(-5, 3, -5);
+        scene.add(fillLight);
+
+        // --- ROOM STRUCTURE ---
+        // Floor (marble texture)
+        const floorTexture = new THREE.TextureLoader().load('depositphotos_138660494-stock-photo-black-marble-floor-texture-and.jpg');
+        floorTexture.wrapS = THREE.RepeatWrapping;
+        floorTexture.wrapT = THREE.RepeatWrapping;
+        floorTexture.repeat.set(4, 4);
+        const floorGeometry = new THREE.PlaneGeometry(10, 10);
+        const floorMaterial = new THREE.MeshStandardMaterial({map: floorTexture, side: THREE.DoubleSide});
+        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        scene.add(floor);
+
+        // Back Wall
+        const backWallGeometry = new THREE.PlaneGeometry(10, 5);
+        const backWallMaterial = new THREE.MeshStandardMaterial({color: 0xcccccc, side: THREE.DoubleSide});
+        const backWall = new THREE.Mesh(backWallGeometry, backWallMaterial);
+        backWall.position.z = -5;
+        backWall.position.y = 2.5;
+        scene.add(backWall);
+
+        // Left Wall
+        const leftWallGeometry = new THREE.PlaneGeometry(10, 5);
+        const leftWallMaterial = new THREE.MeshStandardMaterial({color: 0xbbbbbb, side: THREE.DoubleSide});
+        const leftWall = new THREE.Mesh(leftWallGeometry, leftWallMaterial);
+        leftWall.rotation.y = Math.PI / 2;
+        leftWall.position.x = -5;
+        leftWall.position.y = 2.5;
+        scene.add(leftWall);
+
+        // // --- KITCHEN COUNTER (WORKPLAN) ---
+        // const counterGeometry = new THREE.BoxGeometry(4, 1, 1); // width, height, depth
+        // const counterMaterial = new THREE.MeshStandardMaterial({color: 0xeeeeee, side: THREE.DoubleSide}); // marble / stainless steel
+        // const counter = new THREE.Mesh(counterGeometry, counterMaterial);
+        // counter.position.set(0, 0.5, 2); // in front of the camera, y = half height
+        // scene.add(counter);
+        // --- TABLE TOP ---
+        const tableWidth = 4;
+        const tableDepth = 2;
+        const tableThickness = 0.2;
+        const tableHeight = 1.2; // total height from floor to top surface
+
+        const tableTopGeometry = new THREE.BoxGeometry(tableWidth, tableThickness, tableDepth);
+        const tableMaterial = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.9, roughness: 0.1 });
+
+        const tableTop = new THREE.Mesh(tableTopGeometry, tableMaterial);
+
+        // Position top
+        tableTop.position.y = tableHeight;
+        scene.add(tableTop);
+
+        // --- TABLE LEGS ---
+        const legRadius = 0.1;
+        const legHeight = tableHeight;
+        const legGeometry = new THREE.CylinderGeometry(legRadius, legRadius, legHeight, 32);
+        const legMaterial = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.9, roughness: 0.1 });
+
+        // Function to create a leg
+        function createLeg(x, z) {
+        const leg = new THREE.Mesh(legGeometry, legMaterial);
+        leg.position.set(x, legHeight / 2, z);
+        scene.add(leg);
+        }
+
+        // Place 4 legs at corners
+        const offsetX = tableWidth / 2 - 0.2;
+        const offsetZ = tableDepth / 2 - 0.2;
+
+        createLeg(-offsetX, -offsetZ);
+        createLeg(offsetX, -offsetZ);
+        createLeg(-offsetX, offsetZ);
+        createLeg(offsetX, offsetZ);
+        // --- OBJECTS ON COUNTER ---
+
+        // Cup (cylinder)
+        const cupGeometry = new THREE.CylinderGeometry(0.12, 0.1, 0.3, 32); // radiusTop, radiusBottom, height
+        const cupMaterial = new THREE.MeshStandardMaterial({color: 0xffffff,transparent:true, opacity:0.4, side: THREE.DoubleSide}); // red cup
+        const cup = new THREE.Mesh(cupGeometry, cupMaterial);
+        cup.position.y = tableHeight + tableThickness / 2 + 0.15; // x left on table, y on table top surface + half cup height
+        scene.add(cup);
+        // Plate (cylinder)
+        const plateGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.05, 32); // thin cylinder
+        const plateMaterial = new THREE.MeshStandardMaterial({color: 0xffffff, side: THREE.DoubleSide}); // blue plate
+        const plate = new THREE.Mesh(plateGeometry, plateMaterial);
+        plate.position.set(0.7, tableHeight + tableThickness / 2 + 0.025, 0); // x right on table, y on table top surface + half plate height
+        scene.add(plate);
+        // --- CHAIRS ---
+        const chairSeatGeometry = new THREE.CylinderGeometry(0.35, 0.35, 0.08, 32);
+        const chairBackGeometry = new THREE.BoxGeometry(0.7, 0.7, 0.06);
+        const chairLegGeometry = new THREE.CylinderGeometry(0.04, 0.04, 0.75, 16);
+        const chairMaterial = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.8 });
+        const chairLegMaterial = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.9, roughness: 0.1 });
+
+        function createChair(x, z, rotY) {
+          const group = new THREE.Group();
+
+          // Seat
+          const seat = new THREE.Mesh(chairSeatGeometry, chairMaterial);
+          seat.position.y = 0.75;
+          group.add(seat);
+
+          // Back
+          const back = new THREE.Mesh(chairBackGeometry, chairMaterial);
+          back.position.set(0, 1.15, -0.32);
+          group.add(back);
+
+          // 4 legs
+          const lx = 0.25, lz = 0.25;
+          [[lx, lz], [-lx, lz], [lx, -lz], [-lx, -lz]].forEach(([cx, cz]) => {
+            const leg = new THREE.Mesh(chairLegGeometry, chairLegMaterial);
+            leg.position.set(cx, 0.375, cz);
+            group.add(leg);
+          });
+
+          group.position.set(x, 0, z);
+          group.rotation.y = rotY;
+          scene.add(group);
+        }
+
+        // Front and back (along Z axis)
+        createChair(0, 2.2, Math.PI);      // front-center — faces -Z toward table
+        createChair(0, -2.2, 0);           // back-center  — faces +Z toward table
+        // Left and right (along X axis)
+        createChair(-2.4, 0, Math.PI / 2);  // left
+        createChair(2.4, 0, -Math.PI / 2);  // right
+
+        // --- RENDER LOOP ---
+        function resizeRendererToDisplaySize(renderer) {
+          const canvas = renderer.domElement;
+          const width = canvas.clientWidth;
+          const height = canvas.clientHeight;
+          const needResize = canvas.width !== width || canvas.height !== height;
+          if (needResize) {
+            renderer.setSize(width, height, false);
+          }
+          return needResize;
+        }
+
+        function render() {
+          if (resizeRendererToDisplaySize(renderer)) {
+            const canvas = renderer.domElement;
+            camera.aspect = canvas.clientWidth / canvas.clientHeight;
+            camera.updateProjectionMatrix();
+          }
+
+          controls.update();
+          renderer.render(scene, camera);
+          requestAnimationFrame(render);
+        }
+
+        requestAnimationFrame(render);
+      }
+
+      main();
+    </script>
+  </body>
+</html>
