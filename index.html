@@ -10,7 +10,14 @@
     <style>
       html, body { height: 100%; margin: 0; overflow: hidden; }
       #c { width: 100%; height: 100%; display: block; }
-
+      :root:xr-overlay #togglePassthrough,
+      :xr-overlay #togglePassthrough {
+        display: block !important;
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        z-index: 9999;
+      }
       #togglePassthrough {
         position: absolute;
         top: 20px;
@@ -710,12 +717,28 @@
           passthroughBtn.style.display = isAR ? 'block' : 'none';
           applyPassthroughMode(isAR);
         });
+        
 
         renderer.xr.addEventListener('sessionend', () => {
           passthroughBtn.style.display = 'none';
           roomGroup.visible = true;
           scene.background = new THREE.Color(0x888888);
         });
+        renderer.xr.addEventListener('sessionstart', () => {
+          const session = renderer.xr.getSession();
+          console.log('enabledFeatures:', session.enabledFeatures);
+          console.log('domOverlayState:', session.domOverlayState);
+          console.log('environmentBlendMode:', session.environmentBlendMode);
+        });
+
+        renderer.xr.addEventListener('sessionstart', () => {
+        const session = renderer.xr.getSession();
+        const isAR = session.environmentBlendMode === 'alpha-blend';
+
+        passthroughBtn.style.display = isAR ? 'block' : 'none';
+
+        console.log('domOverlayState:', session.domOverlayState);
+      });
 
         // ============================================================
         // RENDER LOOP
