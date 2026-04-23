@@ -74,13 +74,46 @@
 
         // document.body.appendChild(VRButton.createButton(renderer));
 
-        document.body.appendChild(
-          ARButton.createButton(renderer, {
-            optionalFeatures: ['dom-overlay'],
-            domOverlay: { root: document.body }
-          })
-        );
+        // document.body.appendChild(
+        //   ARButton.createButton(renderer, {
+        //     optionalFeatures: ['dom-overlay'],
+        //     domOverlay: { root: document.body }
+        //   })
+        // );
+        async function setupXRButton() {
+        if (!navigator.xr) {
+          console.warn('WebXR not available in this browser.');
+            document.body.appendChild(VRButton.createButton(renderer));
+            return;
+          }
 
+          let arSupported = false;
+
+          try {
+            arSupported = await navigator.xr.isSessionSupported('immersive-ar');
+          } catch (e) {
+            console.warn('Could not check immersive-ar support:', e);
+          }
+
+          if (arSupported) {
+            console.log('immersive-ar supported: using ARButton');
+
+            document.body.appendChild(
+              ARButton.createButton(renderer, {
+                optionalFeatures: ['dom-overlay'],
+                domOverlay: { root: document.body }
+              })
+            );
+          } else {
+            console.log('immersive-ar not supported: using VRButton');
+
+            document.body.appendChild(
+              VRButton.createButton(renderer)
+            );
+          }
+        }
+
+        setupXRButton();
         // ============================================================
         // CAMERA
         // ============================================================
