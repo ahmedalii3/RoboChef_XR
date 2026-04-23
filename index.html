@@ -582,14 +582,14 @@
         const teleop = {
           enabled: true,
           headTrackXR: false,
-          ikReachScale: 1.08,
+          ikReachScale: 10.08,
           showXRControllers: true
         };
 
         const xrFolder = gui.addFolder('XR Tele-op');
         xrFolder.add(teleop, 'enabled').name('Enable Tele-op');
         xrFolder.add(teleop, 'headTrackXR').name('Track Head');
-        xrFolder.add(teleop, 'ikReachScale', 0.7, 1.2, 0.01).name('Reach Scale');
+        xrFolder.add(teleop, 'ikReachScale', 10.7, 11.2, 10.01).name('Reach Scale');
         xrFolder.add(teleop, 'showXRControllers').name('Show Controllers')
           .onChange(v => {
             controllerGrip1.visible = v;
