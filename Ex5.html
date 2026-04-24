@@ -10,33 +10,30 @@
     <style>
       html, body { height: 100%; margin: 0; overflow: hidden; }
       #c { width: 100%; height: 100%; display: block; }
-      :root:xr-overlay #togglePassthrough,
-      :xr-overlay #togglePassthrough {
-        display: block !important;
+      #xrHudSource {
         position: fixed;
-        top: 20px;
-        left: 20px;
-        z-index: 9999;
+        top: 0;
+        left: -9999px;
+        z-index: -1;
       }
       #togglePassthrough {
-        position: absolute;
-        top: 20px;
-        left: 20px;
-        z-index: 30;
+        position: static;
         padding: 12px 16px;
         font-size: 16px;
         border: none;
         border-radius: 10px;
         background: rgba(0, 0, 0, 0.65);
         color: white;
-        display: none;
+        display: inline-block;
         cursor: pointer;
       }
     </style>
   </head>
   <body>
     <canvas id="c"></canvas>
-    <button id="togglePassthrough">Passthrough: ON</button>
+    <div id="xrHudSource">
+      <button id="togglePassthrough">Passthrough: ON</button>
+    </div>
 
     <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
     <script type="importmap">
@@ -54,9 +51,12 @@
       import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
       import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
       import { VRButton } from 'three/addons/webxr/VRButton.js';
-      // import { ARButton } from 'three/addons/webxr/ARButton.js';
+      import { ARButton } from 'three/addons/webxr/ARButton.js';
       import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+      import { InteractiveGroup } from 'three/addons/interactive/InteractiveGroup.js';
+      import { HTMLMesh } from 'three/addons/interactive/HTMLMesh.js';
 
+      // Initializes renderer, scene graph, XR input, UI, IK, and the render loop.
       function main() {
         const canvas = document.querySelector('#c');
         const passthroughBtn = document.getElementById('togglePassthrough');
@@ -73,49 +73,52 @@
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         renderer.xr.enabled = true;
 
-        // document.body.appendChild(VRButton.createButton(renderer));
-
-        // document.body.appendChild(
-        //   ARButton.createButton(renderer, {
-        //     optionalFeatures: ['dom-overlay'],
-        //     domOverlay: { root: document.body }
-        //   })
-        // );
+        // Keep a fallback VR entry button available on devices without AR support.
         document.body.appendChild(VRButton.createButton(renderer));
-        // async function setupXRButton() {
-        // if (!navigator.xr) {
-        //   console.warn('WebXR not available in this browser.');
-        //     document.body.appendChild(VRButton.createButton(renderer));
-        //     return;
-        //   }
 
-        //   let arSupported = false;
+        document.body.appendChild(
+          ARButton.createButton(renderer, {
+            optionalFeatures: ['dom-overlay'],
+            domOverlay: { root: document.body }
+          })
+        );
+        document.body.appendChild(VRButton.createButton(renderer));
+        // Runtime XR button selection: prefer AR (with DOM overlay), otherwise VR.
+        // Chooses AR button when available; falls back to VR otherwise.
+        async function setupXRButton() {
+        if (!navigator.xr) {
+          console.warn('WebXR not available in this browser.');
+            document.body.appendChild(VRButton.createButton(renderer));
+            return;
+          }
 
-        //   try {
-        //     arSupported = await navigator.xr.isSessionSupported('immersive-ar');
-        //   } catch (e) {
-        //     console.warn('Could not check immersive-ar support:', e);
-        //   }
+          let arSupported = false;
 
-        //   if (arSupported) {
-        //     console.log('immersive-ar supported: using ARButton');
+          try {
+            arSupported = await navigator.xr.isSessionSupported('immersive-ar');
+          } catch (e) {
+            console.warn('Could not check immersive-ar support:', e);
+          }
 
-        //     document.body.appendChild(
-        //       ARButton.createButton(renderer, {
-        //         optionalFeatures: ['dom-overlay'],
-        //         domOverlay: { root: document.body }
-        //       })
-        //     );
-        //   } else {
-        //     console.log('immersive-ar not supported: using VRButton');
+          if (arSupported) {
+            console.log('immersive-ar supported: using ARButton');
 
-        //     document.body.appendChild(
-        //       VRButton.createButton(renderer)
-        //     );
-        //   }
-        // }
+            document.body.appendChild(
+              ARButton.createButton(renderer, {
+                optionalFeatures: ['dom-overlay'],
+                domOverlay: { root: document.body }
+              })
+            );
+          } else {
+            console.log('immersive-ar not supported: using VRButton');
 
-        // setupXRButton();
+            document.body.appendChild(
+              VRButton.createButton(renderer)
+            );
+          }
+        }
+
+        setupXRButton();
         // ============================================================
         // CAMERA
         // ============================================================
@@ -133,8 +136,18 @@
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x888888);
 
+        // World offset applied when an XR session starts (acts like XR "spawn point").
+        const xrSpawn = {
+          x: 0,
+          y: -1.65,
+          z: -1.25,
+          yaw: -Math.PI / 2,
+          pitch: -0.12
+        };
+
         const world = new THREE.Group();
-        world.position.set(0, 0, -2.0);
+        world.position.set(xrSpawn.x, xrSpawn.y, xrSpawn.z);
+        world.rotation.set(xrSpawn.pitch, xrSpawn.yaw, 0);
         scene.add(world);
 
         // only things we want to hide in passthrough-style mode
@@ -186,14 +199,12 @@
         // ============================================================
         // ROOM
         // ============================================================
-        const floorTexture = new THREE.TextureLoader().load(
-          'depositphotos_138660494-stock-photo-black-marble-floor-texture-and.jpg'
-        );
-        floorTexture.wrapS = THREE.RepeatWrapping;
-        floorTexture.wrapT = THREE.RepeatWrapping;
-        floorTexture.repeat.set(3, 3);
-
-        const floorMat = new THREE.MeshStandardMaterial({ map: floorTexture });
+        // Simple procedural floor material (no external texture dependency).
+        const floorMat = new THREE.MeshStandardMaterial({
+          color: 0x8b6a42,
+          roughness: 0.82,
+          metalness: 0.08
+        });
         const floor = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), floorMat);
         floor.rotation.x = -Math.PI / 2;
         floor.receiveShadow = true;
@@ -309,6 +320,7 @@
           roughness: 0.1
         });
 
+        // Builds and places a simple chair at the requested world position and yaw.
         function createChair(x, z, rotY) {
           const group = new THREE.Group();
 
@@ -363,6 +375,7 @@
         robotRoot.rotation.y = -Math.PI / 2;
         world.add(robotRoot);
 
+        // Utility helper to create a mesh, set transform, and attach it to a parent.
         function mkMesh(geo, mat, parent, px = 0, py = 0, pz = 0) {
           const m = new THREE.Mesh(geo, mat);
           m.position.set(px, py, pz);
@@ -454,13 +467,19 @@
           );
         });
 
+        // Creates one robot arm rig (shoulder, elbow, hand) and returns its joints.
         function buildArm(side) {
           const sign = side === 'left' ? -1 : 1;
           const shoulderX = sign * (0.40 / 2 + 0.055);
+          const shoulderBaseZ = sign * 0.35;
+
+          const shoulderAbdGroup = new THREE.Group();
+          shoulderAbdGroup.position.set(shoulderX, torsoH - 0.08, 0);
+          shoulderAbdGroup.rotation.z = shoulderBaseZ;
+          torsoGroup.add(shoulderAbdGroup);
 
           const shoulderGroup = new THREE.Group();
-          shoulderGroup.position.set(shoulderX, torsoH - 0.08, 0);
-          torsoGroup.add(shoulderGroup);
+          shoulderAbdGroup.add(shoulderGroup);
           shoulderGroup.add(new THREE.AxesHelper(0.14));
           mkMesh(new THREE.SphereGeometry(0.05, 12, 12), jointMat, shoulderGroup);
 
@@ -514,10 +533,9 @@
             );
           });
 
-          shoulderGroup.rotation.z = sign * 0.35;
           elbowGroup.rotation.z = 0.0;
 
-          return { shoulderGroup, elbowGroup, handGroup };
+          return { shoulderAbdGroup, shoulderGroup, elbowGroup, handGroup, shoulderBaseZ };
         }
 
         const leftArm = buildArm('left');
@@ -545,16 +563,94 @@
         );
         scene.add(controllerGrip2);
 
+        // Hand/controller mapping. Intentionally reversed per current project preference.
+        const controllerBindings = {
+          left: controllerGrip2,
+          right: controllerGrip1
+        };
+
+        // Update mapping from WebXR handedness events when controllers connect.
+        // Updates logical left/right mapping from WebXR controller handedness events.
+        function setupControllerBinding(source, grip) {
+          source.addEventListener('connected', event => {
+            const handedness = event.data?.handedness;
+            if (handedness === 'left') {
+              controllerBindings.right = grip;
+            } else if (handedness === 'right') {
+              controllerBindings.left = grip;
+            }
+          });
+        }
+
+        setupControllerBinding(controller1, controllerGrip1);
+        setupControllerBinding(controller2, controllerGrip2);
+        setupControllerBinding(controllerGrip1, controllerGrip1);
+        setupControllerBinding(controllerGrip2, controllerGrip2);
+
+        // Returns the currently bound left/right grips with safe fallback mapping.
+        function getBoundControllerGrips() {
+          const leftGrip = controllerBindings.left ?? controllerGrip2;
+          const rightGrip = controllerBindings.right ?? controllerGrip1;
+          if (leftGrip === rightGrip) {
+            return { leftGrip: controllerGrip2, rightGrip: controllerGrip1 };
+          }
+          return { leftGrip, rightGrip };
+        }
+
+        // Visual laser beams used for XR pointing (including UI targeting).
+        const XR_UI_RAY_LENGTH = 2.5;
         const rayGeometry = new THREE.BufferGeometry().setFromPoints([
           new THREE.Vector3(0, 0, 0),
-          new THREE.Vector3(0, 0, -0.4),
+          new THREE.Vector3(0, 0, -XR_UI_RAY_LENGTH),
         ]);
-        const rayMaterial = new THREE.LineBasicMaterial({ color: 0xffffff });
+        const rayMaterial = new THREE.LineBasicMaterial({
+          color: 0x7fd3ff,
+          transparent: true,
+          opacity: 0.95
+        });
 
         const ray1 = new THREE.Line(rayGeometry, rayMaterial);
         const ray2 = new THREE.Line(rayGeometry, rayMaterial);
         controller1.add(ray1);
         controller2.add(ray2);
+
+        // HTML button rendered as a 3D UI panel that can be clicked in XR.
+        const xrUiGroup = new InteractiveGroup();
+        xrUiGroup.listenToPointerEvents(renderer, camera);
+        xrUiGroup.listenToXRControllerEvents(controller1);
+        xrUiGroup.listenToXRControllerEvents(controller2);
+        scene.add(xrUiGroup);
+
+        const xrUiMesh = new HTMLMesh(document.getElementById('xrHudSource'));
+        xrUiMesh.position.set(-0.62, 1.14, -0.86);
+        xrUiMesh.rotation.y = Math.PI / 5;
+        xrUiMesh.scale.setScalar(1.3);
+        xrUiMesh.visible = false;
+        xrUiGroup.add(xrUiMesh);
+
+        const xrUiRaycaster = new THREE.Raycaster();
+        const xrUiRayOrigin = new THREE.Vector3();
+        const xrUiRayDirection = new THREE.Vector3();
+
+        // Fallback click path: trigger press raycasts the XR HTMLMesh and clicks the button.
+        // Trigger fallback for XR UI: raycast from controller and click HUD button on hit.
+        function tryClickXRUi(controller) {
+          if (!renderer.xr.isPresenting || !xrUiMesh.visible) return;
+
+          controller.updateWorldMatrix(true, false);
+          xrUiRayOrigin.setFromMatrixPosition(controller.matrixWorld);
+          xrUiRayDirection.set(0, 0, -1).transformDirection(controller.matrixWorld);
+          xrUiRaycaster.far = XR_UI_RAY_LENGTH;
+          xrUiRaycaster.set(xrUiRayOrigin, xrUiRayDirection);
+
+          const hits = xrUiRaycaster.intersectObject(xrUiMesh, true);
+          if (hits.length > 0) {
+            passthroughBtn.click();
+          }
+        }
+
+        controller1.addEventListener('selectstart', () => tryClickXRUi(controller1));
+        controller2.addEventListener('selectstart', () => tryClickXRUi(controller2));
 
         // ============================================================
         // GUI
@@ -621,17 +717,55 @@
         floorFolder.add(floorMat, 'roughness', 0, 1, 0.01).name('Roughness');
         floorFolder.add(floorMat, 'metalness', 0, 1, 0.01).name('Metalness');
 
+        // Tele-operation tuning parameters for mapping controller motion to robot IK.
         const teleop = {
           enabled: true,
           headTrackXR: false,
-          ikReachScale: 10.08,
+          ikReachScale: 1.0,
+          ikInputGain: 1.4,
+          shoulderLiftGain: 1.9,
+          controllerHeightOffset: 0.0,
+          controllerReachOffset: -0.08,
+          shoulderAbductionGain: 0.55,
           showXRControllers: true
         };
 
         const xrFolder = gui.addFolder('XR Tele-op');
-        xrFolder.add(teleop, 'enabled').name('Enable Tele-op');
+        const teleopCalib = {
+          leftController: null,
+          rightController: null
+        };
+
+        // Captures current controller pose as neutral so later deltas drive the robot arms.
+        // Stores current controller poses as tele-op neutral references for delta mapping.
+        function calibrateTeleopNeutralPose() {
+          if (!renderer.xr.isPresenting) return;
+
+          const { leftGrip, rightGrip } = getBoundControllerGrips();
+          torsoGroup.updateWorldMatrix(true, false);
+          leftGrip.updateWorldMatrix(true, false);
+          rightGrip.updateWorldMatrix(true, false);
+
+          leftGrip.getWorldPosition(tmpWorld1);
+          rightGrip.getWorldPosition(tmpWorld2);
+          teleopCalib.leftController = worldToTorsoLocal(tmpWorld1);
+          teleopCalib.rightController = worldToTorsoLocal(tmpWorld2);
+        }
+
+        xrFolder.add(teleop, 'enabled').name('Enable Tele-op')
+          .onChange(v => {
+            if (v) {
+              setTimeout(calibrateTeleopNeutralPose, 250);
+            }
+          });
         xrFolder.add(teleop, 'headTrackXR').name('Track Head');
-        xrFolder.add(teleop, 'ikReachScale', 10.7, 11.2, 10.01).name('Reach Scale');
+        xrFolder.add(teleop, 'ikReachScale', 0.7, 1.2, 0.01).name('Reach Scale');
+        xrFolder.add(teleop, 'ikInputGain', 0.8, 3.0, 0.01).name('Input Gain');
+        xrFolder.add(teleop, 'shoulderLiftGain', 1.0, 3.0, 0.01).name('Shoulder Lift Gain');
+        xrFolder.add(teleop, 'controllerHeightOffset', -0.5, 0.5, 0.01).name('Controller Y Offset');
+        xrFolder.add(teleop, 'controllerReachOffset', -0.2, 0.25, 0.01).name('Controller Reach Offset');
+        xrFolder.add(teleop, 'shoulderAbductionGain', 0, 1.5, 0.01).name('Shoulder Abduction');
+        xrFolder.add({ recalibrate: calibrateTeleopNeutralPose }, 'recalibrate').name('Recalibrate Pose');
         xrFolder.add(teleop, 'showXRControllers').name('Show Controllers')
           .onChange(v => {
             controllerGrip1.visible = v;
@@ -658,32 +792,73 @@
         // ============================================================
         const UPPER_ARM_LEN = 0.30;
         const FOREARM_LEN = 0.28;
+        const Z_AXIS = new THREE.Vector3(0, 0, 1);
 
         const tmpWorld = new THREE.Vector3();
+        const tmpWorld1 = new THREE.Vector3();
+        const tmpWorld2 = new THREE.Vector3();
 
+        // Clamps a scalar value to a closed interval.
         function clamp(v, lo, hi) {
           return Math.max(lo, Math.min(hi, v));
         }
 
+        // Converts world-space controller/head points into torso-local coordinates.
         function worldToTorsoLocal(worldPos) {
           return torsoGroup.worldToLocal(worldPos.clone());
         }
 
+        // Two-bone IK solver (shoulder + elbow) driven by XR controller target.
+        // Solves per-frame two-bone IK for one arm from XR controller target input.
         function solveArmIK(arm, targetWorld, side) {
           const sideSign = side === 'left' ? -1 : 1;
 
-          const targetTorso = worldToTorsoLocal(targetWorld);
-          const shoulderPos = arm.shoulderGroup.position.clone();
+          const targetTorsoRaw = worldToTorsoLocal(targetWorld);
+          const calibratedController =
+            side === 'left' ? teleopCalib.leftController : teleopCalib.rightController;
+          const totalArmLen = UPPER_ARM_LEN + FOREARM_LEN;
+          const neutralReach = totalArmLen * teleop.ikReachScale * 0.88;
+          const targetTorso = arm.shoulderAbdGroup.position
+            .clone()
+            .add(new THREE.Vector3(0, -neutralReach, 0));
+
+          if (calibratedController) {
+            const controllerDelta = targetTorsoRaw
+              .sub(calibratedController);
+            controllerDelta.y += teleop.controllerHeightOffset;
+            controllerDelta.multiplyScalar(teleop.ikInputGain);
+            controllerDelta.y *= teleop.shoulderLiftGain;
+            targetTorso.add(controllerDelta);
+          } else {
+            targetTorsoRaw.y += teleop.controllerHeightOffset;
+            targetTorso.copy(targetTorsoRaw);
+          }
+
+          const shoulderPos = arm.shoulderAbdGroup.position.clone();
+          const reachVec = targetTorso.clone().sub(shoulderPos);
+          const reachLen = reachVec.length();
+          if (reachLen > 0.0001 && Math.abs(teleop.controllerReachOffset) > 0.0001) {
+            targetTorso.addScaledVector(reachVec, teleop.controllerReachOffset / reachLen);
+          }
           const v = targetTorso.sub(shoulderPos);
+          const lateral = sideSign * v.x;
+          const shoulderAbAd = Math.atan2(lateral, Math.max(0.08, Math.abs(v.y)));
+          const abdDelta = THREE.MathUtils.clamp(
+            shoulderAbAd * teleop.shoulderAbductionGain,
+            -0.8,
+            0.8
+          );
+          const abdZ = arm.shoulderBaseZ + sideSign * abdDelta;
+          arm.shoulderAbdGroup.rotation.z = THREE.MathUtils.clamp(abdZ, -2.2, 2.2);
 
-          const yaw = Math.atan2(v.z, sideSign * Math.max(0.0001, Math.abs(v.x)));
-
-          const horizontal = Math.sqrt(v.x * v.x + v.z * v.z);
-          const verticalDown = -v.y;
+          const vFlex = v.clone().applyAxisAngle(Z_AXIS, -arm.shoulderAbdGroup.rotation.z);
+          const horizontal = Math.sqrt(vFlex.x * vFlex.x + vFlex.z * vFlex.z);
+          const verticalDown = -vFlex.y;
           let d = Math.sqrt(horizontal * horizontal + verticalDown * verticalDown);
 
-          const maxReach = (UPPER_ARM_LEN + FOREARM_LEN) * teleop.ikReachScale;
-          d = clamp(d, 0.03, maxReach - 0.001);
+          const maxReach = totalArmLen * teleop.ikReachScale;
+          const minReach = Math.abs(UPPER_ARM_LEN - FOREARM_LEN) + 0.02;
+          d = clamp(d, minReach, maxReach - 0.001);
 
           const cosElbow =
             (UPPER_ARM_LEN * UPPER_ARM_LEN +
@@ -706,10 +881,12 @@
           const shoulderX = -(targetAngle - shoulderOffset);
 
           arm.shoulderGroup.rotation.x = THREE.MathUtils.clamp(shoulderX, -3.0, 2.6);
-          arm.shoulderGroup.rotation.y = THREE.MathUtils.clamp(yaw, -2.8, 2.8);
+          arm.shoulderGroup.rotation.y = 0;
           arm.elbowGroup.rotation.x = THREE.MathUtils.clamp(elbowX, -3.05, 0.15);
         }
 
+        // Toggles room/background visibility based on AR passthrough mode state.
+        // Applies passthrough visual mode by toggling scene background and room visibility.
         function applyPassthroughMode(isAR) {
           const usePassthroughStyle = isAR && xrView.passthroughStyle;
 
@@ -735,8 +912,10 @@
         // ============================================================
         // XR SESSION ADJUSTMENT
         // ============================================================
+        // Apply XR spawn offset and show XR-specific helpers when entering session.
         renderer.xr.addEventListener('sessionstart', () => {
-          world.position.set(0, -1.5, -1.5);
+          world.position.set(xrSpawn.x, xrSpawn.y, xrSpawn.z);
+          world.rotation.set(xrSpawn.pitch, xrSpawn.yaw, 0);
           worldParams.x = world.position.x;
           worldParams.y = world.position.y;
           worldParams.z = world.position.z;
@@ -749,13 +928,15 @@
           const blendMode = renderer.xr.getEnvironmentBlendMode?.();
           const isAR = blendMode === 'alpha-blend';
 
-          passthroughBtn.style.display = isAR ? 'block' : 'none';
+          xrUiMesh.visible = true;
           applyPassthroughMode(isAR);
+
+          setTimeout(calibrateTeleopNeutralPose, 250);
         });
         
 
         renderer.xr.addEventListener('sessionend', () => {
-          passthroughBtn.style.display = 'none';
+          xrUiMesh.visible = false;
           roomGroup.visible = true;
           scene.background = new THREE.Color(0x888888);
         });
@@ -767,17 +948,14 @@
         });
 
         renderer.xr.addEventListener('sessionstart', () => {
-        const session = renderer.xr.getSession();
-        const isAR = session.environmentBlendMode === 'alpha-blend';
-
-        passthroughBtn.style.display = isAR ? 'block' : 'none';
-
-        console.log('domOverlayState:', session.domOverlayState);
-      });
+          const session = renderer.xr.getSession();
+          console.log('domOverlayState:', session.domOverlayState);
+        });
 
         // ============================================================
         // RENDER LOOP
         // ============================================================
+        // Keeps renderer resolution in sync with canvas display size.
         function resizeRendererToDisplaySize(renderer) {
           const canvas = renderer.domElement;
           const w = canvas.clientWidth;
@@ -787,6 +965,8 @@
           return needResize;
         }
 
+        // Main animation loop: non-XR idle animation or XR tele-op update each frame.
+        // Main frame update: idle animation in non-XR, IK tele-op when XR is active.
         function render() {
           if (resizeRendererToDisplaySize(renderer)) {
             camera.aspect = canvas.clientWidth / canvas.clientHeight;
@@ -830,13 +1010,19 @@
 
             rightArm.shoulderGroup.rotation.x = raise;
             rightArm.elbowGroup.rotation.x = -bend;
-            rightArm.shoulderGroup.rotation.y = twist;
+            rightArm.shoulderGroup.rotation.y = 0;
+            rightArm.shoulderAbdGroup.rotation.z = rightArm.shoulderBaseZ;
           } else {
-            controllerGrip1.getWorldPosition(tmpWorld);
-            solveArmIK(leftArm, tmpWorld, 'left');
+            const { leftGrip, rightGrip } = getBoundControllerGrips();
+            torsoGroup.updateWorldMatrix(true, false);
+            leftGrip.updateWorldMatrix(true, false);
+            rightGrip.updateWorldMatrix(true, false);
 
-            controllerGrip2.getWorldPosition(tmpWorld);
-            solveArmIK(rightArm, tmpWorld, 'right');
+            leftGrip.getWorldPosition(tmpWorld1);
+            rightGrip.getWorldPosition(tmpWorld2);
+
+            solveArmIK(leftArm, tmpWorld1, 'left');
+            solveArmIK(rightArm, tmpWorld2, 'right');
 
             if (teleop.headTrackXR) {
               const xrCam = renderer.xr.getCamera();

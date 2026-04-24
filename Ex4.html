@@ -27,6 +27,7 @@
       import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
       import { GUI }           from 'three/addons/libs/lil-gui.module.min.js';
 
+      // Initializes renderer, scene content, controls, GUI, and animation loop.
       function main() {
         const canvas = document.querySelector('#c');
         
@@ -84,19 +85,17 @@
         // 3. Subtle fill – no shadows, just prevents totally dark walls
         const fillLight = new THREE.DirectionalLight(0x8899cc, 0.3);
         fillLight.position.set(-4, 6, -4);
-        scene.add(fillLight);
+        // scene.add(fillLight);  --- IGNORE ---
 
         // ============================================================
         // ROOM
         // ============================================================
-        const floorTexture = new THREE.TextureLoader().load(
-          'depositphotos_138660494-stock-photo-black-marble-floor-texture-and.jpg'
-        );
-        floorTexture.wrapS = THREE.RepeatWrapping;
-        floorTexture.wrapT = THREE.RepeatWrapping;
-        floorTexture.repeat.set(4, 4);
-
-        const floorMat = new THREE.MeshStandardMaterial({ map: floorTexture });
+        // Floor uses a procedural wood-like look (no image texture dependency).
+        const floorMat = new THREE.MeshStandardMaterial({
+          color: 0x8b6a42,
+          roughness: 0.82,
+          metalness: 0.08
+        });
         const floor    = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), floorMat);
         floor.rotation.x   = -Math.PI / 2;
         floor.receiveShadow = true;
@@ -170,6 +169,7 @@
         const chairMat     = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.8 });
         const chairLegMat  = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.9, roughness: 0.1 });
 
+        // Builds a chair mesh group and places it at the requested pose.
         function createChair(x, z, rotY) {
           const group = new THREE.Group();
 
@@ -213,6 +213,7 @@
         scene.add(robotRoot);
 
         // Helper: create mesh, add to parent, enable shadows
+        // Small helper for creating meshes with shadows and parenting in one call.
         function mkMesh(geo, mat, parent, px = 0, py = 0, pz = 0) {
           const m = new THREE.Mesh(geo, mat);
           m.position.set(px, py, pz);
@@ -261,6 +262,7 @@
         });
 
         // Arm builder
+        // Creates one articulated arm chain and returns control pivots.
         function buildArm(side) {
           const sign      = side === 'left' ? -1 : 1;
           const shoulderX = sign * (0.68 / 2 + 0.09);
@@ -368,6 +370,7 @@
         const floorFolder = gui.addFolder('Floor Material');
         floorFolder.add(floorMat, 'roughness', 0, 1, 0.01).name('Roughness');
         floorFolder.add(floorMat, 'metalness', 0, 1, 0.01).name('Metalness');
+        // Clamps a rotation (degrees) and converts it to radians.
         function clampRotation(value, minDeg, maxDeg) {
 
             const min = THREE.MathUtils.degToRad(minDeg);
@@ -422,6 +425,7 @@
         // ============================================================
         const clock = new THREE.Clock();
 
+        // Synchronizes renderer size with on-screen canvas dimensions.
         function resizeRendererToDisplaySize(renderer) {
           const canvas = renderer.domElement;
           const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -430,6 +434,7 @@
           return needResize;
         }
 
+        // Frame update: procedural robot motion plus final render call.
         function render() {
           if (resizeRendererToDisplaySize(renderer)) {
             camera.aspect = canvas.clientWidth / canvas.clientHeight;
