@@ -37,6 +37,8 @@
       function main() {
         const canvas = document.querySelector('#c');
         const renderer = new THREE.WebGLRenderer({canvas, antialias: true});
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
         // Camera
         const camera = new THREE.PerspectiveCamera(75, 2, 0.1, 100);
