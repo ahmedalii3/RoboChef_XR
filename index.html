@@ -161,8 +161,8 @@
         spotLight.shadow.bias = -0.001;
         spotLight.shadow.normalBias = 0.02;
         spotLight.target.position.set(0, 0.7, 0);
-        scene.add(spotLight);
-        scene.add(spotLight.target);
+        world.add(spotLight);
+        world.add(spotLight.target);
 
         const lampBase = new THREE.Mesh(
           new THREE.CylinderGeometry(0.04, 0.10, 0.12, 20),
@@ -334,10 +334,10 @@
           roomGroup.add(group);
         }
 
-        createChair(0, 0.95, Math.PI);
-        createChair(0, -0.95, 0);
-        createChair(-0.95, 0, Math.PI / 2);
-        createChair(0.95, 0, -Math.PI / 2);
+        // createChair(0, 0.95, Math.PI);
+        // createChair(0, -0.95, 0);
+        // createChair(-0.95, 0, Math.PI / 2);
+        // createChair(0.95, 0, -Math.PI / 2);
 
         // ============================================================
         // ROBOT
@@ -359,7 +359,7 @@
         });
 
         const robotRoot = new THREE.Group();
-        robotRoot.position.set(0.75, 0, 0);
+        robotRoot.position.set(1.5, 0, 0);
         robotRoot.rotation.y = -Math.PI / 2;
         world.add(robotRoot);
 

@@ -195,10 +195,10 @@
           scene.add(group);
         }
 
-        createChair(0,    2.2,  Math.PI);
-        createChair(0,   -2.2,  0);
-        createChair(-2.4, 0,    Math.PI / 2);
-        createChair( 2.4, 0,   -Math.PI / 2);
+        // createChair(0,    2.2,  Math.PI);
+        // createChair(0,   -2.2,  0);
+        // createChair(-2.4, 0,    Math.PI / 2);
+        // createChair( 2.4, 0,   -Math.PI / 2);
 
         // ============================================================
         // ROBOT
@@ -408,14 +408,14 @@
         poseFolder.add(pose, 'autoAnimate').name('Auto Animate');
         poseFolder.add(pose, 'headY', -90, 90, 1).name('Head Y');
 
-        poseFolder.add(pose, 'rightShoulderX', -120, 120, 1).name('Right Shoulder X');
+        poseFolder.add(pose, 'rightShoulderX', -180, 90, 1).name('Right Shoulder X');
         poseFolder.add(pose, 'rightShoulderY', -90, 90, 1).name('Right Shoulder Y');
-        poseFolder.add(pose, 'rightShoulderZ', -90, 90, 1).name('Right Shoulder Z');
+        poseFolder.add(pose, 'rightShoulderZ', -40, 90, 1).name('Right Shoulder Z');
         poseFolder.add(pose, 'rightElbowX', -150, 0, 1).name('Right Elbow X');
 
-        poseFolder.add(pose, 'leftShoulderX', -120, 120, 1).name('Left Shoulder X');
+        poseFolder.add(pose, 'leftShoulderX', -180, 90, 1).name('Left Shoulder X');
         poseFolder.add(pose, 'leftShoulderY', -90, 90, 1).name('Left Shoulder Y');
-        poseFolder.add(pose, 'leftShoulderZ', -90, 90, 1).name('Left Shoulder Z');
+        poseFolder.add(pose, 'leftShoulderZ', -40, 90, 1).name('Left Shoulder Z');
         poseFolder.add(pose, 'leftElbowX', -150, 0, 1).name('Left Elbow X');
         // ============================================================
         // RENDER LOOP
