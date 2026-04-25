@@ -1,14 +1,41 @@
 <!DOCTYPE html>
+<!--
+  Three.js Kitchen + Robot Scene
+
+  This example combines a simple kitchen/dining-room environment with a hierarchical robot model.
+
+  Scene contents:
+  - Basic room with floor, back wall, and left wall.
+  - Metallic table/workplan with four cylindrical legs.
+  - Cup and plate objects on the table.
+  - Four chairs around the table.
+  - A robot placed beside the table and facing toward it.
+
+  Robot structure:
+  - robotRoot controls the whole robot position and orientation.
+  - torsoGroup acts as the torso pivot above the hips.
+  - headGroup acts as the neck/head pivot.
+  - Each arm is built from nested groups:
+    shoulderGroup -> elbowGroup -> handGroup.
+  - This hierarchy makes it possible to animate shoulder, elbow, and wrist/hand rotations independently.
+
+  Interaction:
+  - OrbitControls allow the user to rotate, pan, and zoom around the scene.
+  - The render loop includes a clock and commented animation examples for the robot.
+-->
 <html>
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>Three.js Kitchen + Robot</title>
     <style>
+      /* Make the document fill the full browser window. */
       html, body {
         height: 100%;
         margin: 0;
       }
+
+      /* The WebGL canvas fills the screen. */
       #c {
         width: 100%;
         height: 100%;
@@ -17,9 +44,13 @@
     </style>
   </head>
   <body>
+    <!-- Canvas used by the Three.js WebGL renderer. -->
     <canvas id="c"></canvas>
 
+    <!-- ES module shim for browsers that need help with import maps. -->
     <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
+
+    <!-- Import map for Three.js and its addons. -->
     <script type="importmap">
       {
         "imports": {
@@ -35,28 +66,36 @@
 
       // Builds the full scene (room, furniture, robot) and starts rendering.
       function main() {
+        // Get the canvas element and create the renderer.
         const canvas = document.querySelector('#c');
         const renderer = new THREE.WebGLRenderer({canvas, antialias: true});
 
         // Camera
+        // Positioned diagonally above the scene so the table and robot are visible.
         const camera = new THREE.PerspectiveCamera(75, 2, 0.1, 100);
         camera.position.set(6, 5, 7);
         camera.lookAt(0, 1, 0);
 
         // Controls
+        // OrbitControls lets the user inspect the scene interactively.
         const controls = new OrbitControls(camera, renderer.domElement);
 
         // Scene
+        // Root container for all objects.
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0xaaaaaa);
 
         // Lighting
+        // Directional light simulates strong light from above/front.
         const light = new THREE.DirectionalLight(0xffffff, 1.5);
         light.position.set(5, 10, 7);
         scene.add(light);
+
+        // Ambient light prevents fully black shadows and makes all objects visible.
         scene.add(new THREE.AmbientLight(0x404040, 2));
 
         // Point light above table
+        // Warm local light centered above the table area.
         const pointLight = new THREE.PointLight(0xfff5e0, 2, 15);
         pointLight.position.set(0, 4, 0);
         scene.add(pointLight);
@@ -79,6 +118,7 @@
         scene.add(floor);
 
         // Back Wall
+        // A vertical plane placed at the back of the room.
         const backWallGeometry = new THREE.PlaneGeometry(10, 5);
         const backWallMaterial = new THREE.MeshStandardMaterial({color: 0xcccccc, side: THREE.DoubleSide});
         const backWall = new THREE.Mesh(backWallGeometry, backWallMaterial);
@@ -87,6 +127,7 @@
         scene.add(backWall);
 
         // Left Wall
+        // A second vertical plane rotated to form the left side of the room.
         const leftWallGeometry = new THREE.PlaneGeometry(10, 5);
         const leftWallMaterial = new THREE.MeshStandardMaterial({color: 0xbbbbbb, side: THREE.DoubleSide});
         const leftWall = new THREE.Mesh(leftWallGeometry, leftWallMaterial);
@@ -98,17 +139,20 @@
         // =============================================
         // --- TABLE ---
         // =============================================
+        // Main dimensions for the table/workplan.
         const tableWidth = 4;
         const tableDepth = 2;
         const tableThickness = 0.2;
         const tableHeight = 1.2;
 
+        // Metallic tabletop.
         const tableTopGeometry = new THREE.BoxGeometry(tableWidth, tableThickness, tableDepth);
         const tableMaterial = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.9, roughness: 0.1 });
         const tableTop = new THREE.Mesh(tableTopGeometry, tableMaterial);
         tableTop.position.y = tableHeight;
         scene.add(tableTop);
 
+        // Cylindrical table legs.
         const legRadius = 0.1;
         const legHeight = tableHeight;
         const legGeometry = new THREE.CylinderGeometry(legRadius, legRadius, legHeight, 32);
@@ -121,6 +165,7 @@
           scene.add(leg);
         }
 
+        // Compute leg offsets so the legs sit near the tabletop corners.
         const offsetX = tableWidth / 2 - 0.2;
         const offsetZ = tableDepth / 2 - 0.2;
         createTableLeg(-offsetX, -offsetZ);
@@ -131,12 +176,14 @@
         // =============================================
         // --- OBJECTS ON TABLE ---
         // =============================================
+        // Transparent cup, modeled as a small cylinder.
         const cupGeometry = new THREE.CylinderGeometry(0.12, 0.1, 0.3, 32);
         const cupMaterial = new THREE.MeshStandardMaterial({color: 0xffffff, transparent: true, opacity: 0.4, side: THREE.DoubleSide});
         const cup = new THREE.Mesh(cupGeometry, cupMaterial);
         cup.position.y = tableHeight + tableThickness / 2 + 0.15;
         scene.add(cup);
 
+        // Flat plate, modeled as a thin cylinder.
         const plateGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.05, 32);
         const plateMaterial = new THREE.MeshStandardMaterial({color: 0xffffff, side: THREE.DoubleSide});
         const plate = new THREE.Mesh(plateGeometry, plateMaterial);
@@ -146,6 +193,7 @@
         // =============================================
         // --- CHAIRS ---
         // =============================================
+        // Reusable geometries and materials for all chairs.
         const chairSeatGeometry = new THREE.CylinderGeometry(0.35, 0.35, 0.08, 32);
         const chairBackGeometry = new THREE.BoxGeometry(0.7, 0.7, 0.06);
         const chairLegGeometry = new THREE.CylinderGeometry(0.04, 0.04, 0.75, 16);
@@ -155,14 +203,18 @@
         // Creates and places one chair group around the table.
         function createChair(x, z, rotY) {
           const group = new THREE.Group();
+
+          // Seat.
           const seat = new THREE.Mesh(chairSeatGeometry, chairMaterial);
           seat.position.y = 0.75;
           group.add(seat);
 
+          // Chair back.
           const back = new THREE.Mesh(chairBackGeometry, chairMaterial);
           back.position.set(0, 1.15, -0.32);
           group.add(back);
 
+          // Four chair legs under the seat.
           const lx = 0.25, lz = 0.25;
           [[lx, lz], [-lx, lz], [lx, -lz], [-lx, -lz]].forEach(([cx, cz]) => {
             const leg = new THREE.Mesh(chairLegGeometry, chairLegMaterial);
@@ -170,11 +222,13 @@
             group.add(leg);
           });
 
+          // Move and rotate the whole chair group.
           group.position.set(x, 0, z);
           group.rotation.y = rotY;
           scene.add(group);
         }
 
+        // Four chairs placed around the table.
         createChair(0,    2.2,  Math.PI);
         createChair(0,   -2.2,  0);
         createChair(-2.4, 0,    Math.PI / 2);
@@ -183,17 +237,20 @@
         // =============================================
         // --- ROBOT ---
         // =============================================
+        // Materials for robot body, dark joints, and glowing eyes/antenna balls.
         const robotBodyMat = new THREE.MeshStandardMaterial({ color: 0x4488cc, metalness: 0.7, roughness: 0.3 });
         const jointMat     = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.9, roughness: 0.15 });
         const eyeMat       = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x008888 });
 
-        // Root placed beside the table, facing toward it
+        // Root placed beside the table, facing toward it.
+        // Moving/rotating robotRoot moves the entire robot as one object.
         const robotRoot = new THREE.Group();
         robotRoot.position.set(3.8, 0, 0);
         robotRoot.rotation.y = -Math.PI / 2; // face toward table
         scene.add(robotRoot);
 
         // -- LEGS --
+        // Two simple cylindrical legs attached directly to the robot root.
         const legH = 0.9, legRad = 0.11;
         const robotLegGeo = new THREE.CylinderGeometry(legRad, legRad * 1.2, legH, 16);
         [-0.16, 0.16].forEach(x => {
@@ -203,12 +260,15 @@
         });
 
         // -- HIPS --
+        // Rectangular hips sitting above the legs.
         const hipsH = 0.38;
         const hips = new THREE.Mesh(new THREE.BoxGeometry(0.55, hipsH, 0.38), robotBodyMat);
         hips.position.y = legH + hipsH / 2;
         robotRoot.add(hips);
 
         // -- TORSO GROUP  (pivot = hip-torso joint) --
+        // The torsoGroup pivot is placed at the top of the hips.
+        // Rotating torsoGroup would rotate the whole upper body.
         const torsoGroup = new THREE.Group();
         torsoGroup.position.y = legH + hipsH;
         robotRoot.add(torsoGroup);
@@ -219,6 +279,7 @@
         torsoGroup.add(torso);
 
         // -- HEAD GROUP  (pivot = neck joint, top of torso) --
+        // The headGroup pivot is at the top of the torso, so rotating it behaves like a neck joint.
         const headGroup = new THREE.Group();
         headGroup.position.y = torsoH;
         torsoGroup.add(headGroup);
@@ -230,6 +291,7 @@
         headGroup.add(head);
 
         // Eyes
+        // Two small emissive spheres on the front of the head.
         [-0.1, 0.1].forEach(ex => {
           const eye = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 10), eyeMat);
           eye.position.set(ex, headH / 2 + 0.02, 0.19);
@@ -237,6 +299,7 @@
         });
 
         // Antennas (two)
+        // Each antenna is a thin cylinder with a glowing sphere on top.
         [-0.1, 0.1].forEach(ax => {
           const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.22, 8), jointMat);
           antenna.position.set(ax, headH + 0.11, 0);
@@ -247,77 +310,82 @@
         });
 
         // ---- ARM BUILDER ----
-        // Returns references to animated pivots
+        // Returns references to animated pivots.
         // Builds one articulated arm rig and returns key joints for animation.
         function buildArm(side) {
           const sign = side === 'left' ? -1 : 1;
           const shoulderX = sign * (0.68 / 2 + 0.09); // flush with torso edge
 
-          // SHOULDER GROUP — pivot at shoulder joint
+          // SHOULDER GROUP — pivot at shoulder joint.
+          // Rotating this group moves the entire arm.
           const shoulderGroup = new THREE.Group();
           shoulderGroup.position.set(shoulderX, torsoH - 0.14, 0);
           torsoGroup.add(shoulderGroup);
           shoulderGroup.add(new THREE.AxesHelper(0.22)); // visual debug
 
-          // Shoulder joint sphere
+          // Shoulder joint sphere.
           shoulderGroup.add(
             Object.assign(new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 12), jointMat))
           );
 
-          // Upper arm mesh — top face sits at pivot (y=0), extends downward
+          // Upper arm mesh — top face sits at pivot (y=0), extends downward.
           const upperArmH = 0.52;
           const upperArm = new THREE.Mesh(new THREE.BoxGeometry(0.15, upperArmH, 0.15), robotBodyMat);
           upperArm.position.y = -upperArmH / 2;
           shoulderGroup.add(upperArm);
 
-          // ELBOW GROUP — pivot at bottom of upper arm
+          // ELBOW GROUP — pivot at bottom of upper arm.
+          // Rotating this group bends the lower arm relative to the upper arm.
           const elbowGroup = new THREE.Group();
           elbowGroup.position.y = -upperArmH;
           shoulderGroup.add(elbowGroup);
           elbowGroup.add(new THREE.AxesHelper(0.18)); // visual debug
 
-          // Elbow joint sphere
+          // Elbow joint sphere.
           elbowGroup.add(
             Object.assign(new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), jointMat))
           );
 
-          // Forearm mesh
+          // Forearm mesh.
           const forearmH = 0.46;
           const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.12, forearmH, 0.12), robotBodyMat);
           forearm.position.y = -forearmH / 2;
           elbowGroup.add(forearm);
 
-          // WRIST / HAND GROUP — pivot at bottom of forearm
+          // WRIST / HAND GROUP — pivot at bottom of forearm.
+          // This group can be rotated to animate the wrist/hand independently.
           const handGroup = new THREE.Group();
           handGroup.position.y = -forearmH;
           elbowGroup.add(handGroup);
           handGroup.add(new THREE.AxesHelper(0.15)); // visual debug
 
-          // Palm
+          // Palm.
           const palm = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.13, 0.09), robotBodyMat);
           palm.position.y = -0.065;
           handGroup.add(palm);
 
-          // Gripper fingers (2)
+          // Gripper fingers (2).
           [-0.08, 0.08].forEach(fx => {
             const finger = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.05), jointMat);
             finger.position.set(fx, -0.2, 0);
             handGroup.add(finger);
           });
 
-          // Default rest pose — arms slightly spread outward
+          // Default rest pose — arms slightly spread outward.
           shoulderGroup.rotation.z = sign * 0.35;
           elbowGroup.rotation.z    = sign * 0.28; // slight elbow bend
 
           return { shoulderGroup, elbowGroup, handGroup };
         }
 
+        // Build left and right articulated arms.
         const leftArm  = buildArm('left');
         const rightArm = buildArm('right');
 
         // =============================================
         // --- RENDER LOOP ---
         // =============================================
+        // Clock can be used for time-based robot animation.
         const clock = new THREE.Clock();
 
         // Keeps render resolution aligned with canvas display size.
@@ -332,23 +400,27 @@
 
         // Main animation loop: idle motion + render pass.
         function render() {
+          // Resize renderer/camera projection when the canvas display size changes.
           if (resizeRendererToDisplaySize(renderer)) {
             const canvas = renderer.domElement;
             camera.aspect = canvas.clientWidth / canvas.clientHeight;
             camera.updateProjectionMatrix();
           }
 
-          // Animate robot to demonstrate scene graph hierarchy
+          // Animate robot to demonstrate scene graph hierarchy.
           const t = clock.getElapsedTime();
 
-          // Head slowly looks left/right
+          // Head slowly looks left/right.
           // headGroup.rotation.y = Math.sin(t * 0.8) * 0.4;
+
+          // Torso rotation example.
           // torsoGroup.rotation.y = Math.sin(t * 0.8) * 0.4; // --- IGNORE ---
-          // Right arm waves — shoulder swings forward/back, elbow bends
+
+          // Right arm waves — shoulder swings forward/back, elbow bends.
           // rightArm.shoulderGroup.rotation.x = Math.sin(t * 1.2) * 0.5 - 0.3;
           // rightArm.elbowGroup.rotation.x    = Math.abs(Math.sin(t * 1.2)) * 0.6 - 0.28;
 
-          // Left arm rests, subtle sway
+          // Left arm rests, subtle sway.
           // leftArm.shoulderGroup.rotation.x  = Math.sin(t * 0.6 + 1) * 0.1;
 
           controls.update();
@@ -356,6 +428,7 @@
           requestAnimationFrame(render);
         }
 
+        // Start the render loop.
         requestAnimationFrame(render);
       }
 

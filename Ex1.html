@@ -1,14 +1,29 @@
 <!DOCTYPE html>
+<!--
+  Three.js Kitchen Scene
+
+  This example creates a simple 3D kitchen/dining scene using Three.js.
+  It includes:
+  - A floor and two walls to form a basic room corner.
+  - A metallic table/workplan with four legs.
+  - Two objects on the table: a transparent cup and a plate.
+  - Chair-building code, currently prepared but not actively used because the chair calls are commented.
+  - OrbitControls so the user can rotate, zoom, and inspect the scene.
+  - Basic lighting and shadow-map setup.
+-->
 <html>
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>Three.js Kitchen Scene</title>
     <style>
+      /* Make the page fill the full browser window. */
       html, body {
         height: 100%;
         margin: 0;
       }
+
+      /* The canvas takes the full available screen size. */
       #c {
         width: 100%;
         height: 100%;
@@ -17,9 +32,13 @@
     </style>
   </head>
   <body>
+    <!-- Main WebGL canvas used by the renderer. -->
     <canvas id="c"></canvas>
 
+    <!-- ES module shim for wider import-map support. -->
     <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
+
+    <!-- Import map defining where Three.js and its addons are loaded from. -->
     <script type="importmap">
       {
         "imports": {
@@ -35,30 +54,43 @@
 
       // Builds the full example scene and starts rendering.
       function main() {
+        // Get the canvas element from the page.
         const canvas = document.querySelector('#c');
+
+        // Create the WebGL renderer and connect it to the canvas.
         const renderer = new THREE.WebGLRenderer({canvas, antialias: true});
+
+        // Enable shadow-map support. Objects still need castShadow/receiveShadow enabled individually
+        // if real shadows are required.
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
         // Camera
+        // Perspective camera creates a natural 3D view.
         const camera = new THREE.PerspectiveCamera(75, 2, 0.1, 100);
         camera.position.set(5, 5, 5);
         camera.lookAt(0, 0, 0);
 
         // Controls
+        // OrbitControls lets the user rotate, pan, and zoom around the scene with mouse/touch.
         const controls = new OrbitControls(camera, renderer.domElement);
 
         // Scene
+        // The scene is the root container for all 3D objects.
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0xaaaaaa);
 
         // Lighting
+        // Directional light acts like sunlight coming from one direction.
         const light = new THREE.DirectionalLight(0xffffff, 1.5);
         light.position.set(5, 10, 7);
         scene.add(light);
+
+        // Ambient light gives all objects a small amount of base illumination.
         scene.add(new THREE.AmbientLight(0x404040, 2));
 
         // Point light above table
+        // This adds warm local light near the center of the scene.
         const pointLight = new THREE.PointLight(0xfff5e0, 2, 15);
         pointLight.position.set(0, 4, 0);
         scene.add(pointLight);
@@ -79,6 +111,7 @@
         scene.add(floor);
 
         // Back Wall
+        // Plane placed behind the table to close the room on the back side.
         const backWallGeometry = new THREE.PlaneGeometry(10, 5);
         const backWallMaterial = new THREE.MeshStandardMaterial({color: 0xcccccc, side: THREE.DoubleSide});
         const backWall = new THREE.Mesh(backWallGeometry, backWallMaterial);
@@ -87,6 +120,7 @@
         scene.add(backWall);
 
         // Left Wall
+        // Plane rotated by 90 degrees to create the left side wall.
         const leftWallGeometry = new THREE.PlaneGeometry(10, 5);
         const leftWallMaterial = new THREE.MeshStandardMaterial({color: 0xbbbbbb, side: THREE.DoubleSide});
         const leftWall = new THREE.Mesh(leftWallGeometry, leftWallMaterial);
@@ -96,12 +130,15 @@
         scene.add(leftWall);
 
         // // --- KITCHEN COUNTER (WORKPLAN) ---
+        // // This older counter version is kept commented as an alternative simple workplan.
         // const counterGeometry = new THREE.BoxGeometry(4, 1, 1); // width, height, depth
         // const counterMaterial = new THREE.MeshStandardMaterial({color: 0xeeeeee, side: THREE.DoubleSide}); // marble / stainless steel
         // const counter = new THREE.Mesh(counterGeometry, counterMaterial);
         // counter.position.set(0, 0.5, 2); // in front of the camera, y = half height
         // scene.add(counter);
+
         // --- TABLE TOP ---
+        // Dimensions for the metallic table/workplan.
         const tableWidth = 4;
         const tableDepth = 2;
         const tableThickness = 0.2;
@@ -113,10 +150,12 @@
         const tableTop = new THREE.Mesh(tableTopGeometry, tableMaterial);
 
         // Position top
+        // The tabletop center is placed at the table height.
         tableTop.position.y = tableHeight;
         scene.add(tableTop);
 
         // --- TABLE LEGS ---
+        // Cylindrical metallic legs placed at the four corners of the tabletop.
         const legRadius = 0.1;
         const legHeight = tableHeight;
         const legGeometry = new THREE.CylinderGeometry(legRadius, legRadius, legHeight, 32);
@@ -137,21 +176,27 @@
         createLeg(offsetX, -offsetZ);
         createLeg(-offsetX, offsetZ);
         createLeg(offsetX, offsetZ);
+
         // --- OBJECTS ON COUNTER ---
 
         // Cup (cylinder)
+        // A transparent white cylinder placed on the tabletop.
         const cupGeometry = new THREE.CylinderGeometry(0.12, 0.1, 0.3, 32); // radiusTop, radiusBottom, height
         const cupMaterial = new THREE.MeshStandardMaterial({color: 0xffffff,transparent:true, opacity:0.4, side: THREE.DoubleSide}); // red cup
         const cup = new THREE.Mesh(cupGeometry, cupMaterial);
         cup.position.y = tableHeight + tableThickness / 2 + 0.15; // x left on table, y on table top surface + half cup height
         scene.add(cup);
+
         // Plate (cylinder)
+        // A thin cylinder used as a simple plate model.
         const plateGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.05, 32); // thin cylinder
         const plateMaterial = new THREE.MeshStandardMaterial({color: 0xffffff, side: THREE.DoubleSide}); // blue plate
         const plate = new THREE.Mesh(plateGeometry, plateMaterial);
         plate.position.set(0.7, tableHeight + tableThickness / 2 + 0.025, 0); // x right on table, y on table top surface + half plate height
         scene.add(plate);
+
         // --- CHAIRS ---
+        // Geometry and materials for optional chairs.
         const chairSeatGeometry = new THREE.CylinderGeometry(0.35, 0.35, 0.08, 32);
         const chairBackGeometry = new THREE.BoxGeometry(0.7, 0.7, 0.06);
         const chairLegGeometry = new THREE.CylinderGeometry(0.04, 0.04, 0.75, 16);
@@ -163,16 +208,19 @@
           const group = new THREE.Group();
 
           // Seat
+          // Circular chair seat.
           const seat = new THREE.Mesh(chairSeatGeometry, chairMaterial);
           seat.position.y = 0.75;
           group.add(seat);
 
           // Back
+          // Rectangular chair back placed behind the seat.
           const back = new THREE.Mesh(chairBackGeometry, chairMaterial);
           back.position.set(0, 1.15, -0.32);
           group.add(back);
 
           // 4 legs
+          // Each leg is a small cylinder placed under a corner of the seat.
           const lx = 0.25, lz = 0.25;
           [[lx, lz], [-lx, lz], [lx, -lz], [-lx, -lz]].forEach(([cx, cz]) => {
             const leg = new THREE.Mesh(chairLegGeometry, chairLegMaterial);
@@ -180,12 +228,14 @@
             group.add(leg);
           });
 
+          // Move and rotate the full chair group.
           group.position.set(x, 0, z);
           group.rotation.y = rotY;
           scene.add(group);
         }
 
         // // Front and back (along Z axis)
+        // // Uncomment these calls to display chairs around the table.
         // createChair(0, 2.2, Math.PI);      // front-center — faces -Z toward table
         // createChair(0, -2.2, 0);           // back-center  — faces +Z toward table
         // // Left and right (along X axis)
@@ -207,6 +257,7 @@
 
         // Per-frame update and draw.
         function render() {
+          // Update renderer and camera when the browser window/canvas size changes.
           if (resizeRendererToDisplaySize(renderer)) {
             const canvas = renderer.domElement;
             camera.aspect = canvas.clientWidth / canvas.clientHeight;
@@ -218,6 +269,7 @@
           requestAnimationFrame(render);
         }
 
+        // Start the render loop.
         requestAnimationFrame(render);
       }
 

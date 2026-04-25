@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<!--
+  Three.js Lighting, Shadows, XR Passthrough, and Robot Tele-operation Scene
+
+  This example combines several advanced Three.js/WebXR ideas:
+  - A small kitchen/table scene with lights, shadows, room geometry, and objects.
+  - A hierarchical robot model with torso, head, shoulders, elbows, and hands.
+  - WebXR support using both ARButton and VRButton.
+  - Passthrough-style AR mode by hiding the virtual room and making the scene background transparent.
+  - A 3D XR HUD made from an HTML button using HTMLMesh.
+  - XR controller models and controller rays for interaction.
+  - Controller-to-robot tele-operation using a simple two-bone IK solver.
+  - lil-gui controls for lighting, materials, robot tele-op tuning, and XR world offset.
+
+  Important scene organization:
+  - scene: the global Three.js scene.
+  - world: contains the main virtual world and can be shifted/rotated for XR spawn alignment.
+  - roomGroup: contains only the virtual room elements that can be hidden in passthrough mode.
+  - robotRoot: root of the robot hierarchy.
+  - torsoGroup: parent for torso, head, and arms.
+  - shoulderAbdGroup -> shoulderGroup -> elbowGroup -> handGroup: nested arm joints.
+-->
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=yes"
+    >
+    <title>Three.js – Lighting & Shadows</title>
+    <style>
+      /* Fill the browser window and prevent scrollbars. */
+      html, body { height: 100%; margin: 0; overflow: hidden; }
+
+      /* Main WebGL canvas. */
+      #c { width: 100%; height: 100%; display: block; }
+
+      /*
+        Hidden DOM source for the XR HUD.
+        HTMLMesh reads this DOM element and renders it as a 3D panel in XR.
+      */
+      #xrHudSource {
+        position: fixed;
+        top: 0;
+        left: -9999px;
+        z-index: -1;
+      }
+
+      /* Button used to toggle passthrough-style visualization. */
+      #togglePassthrough {
+        position: static;
+        padding: 12px 16px;
+        font-size: 16px;
+        border: none;
+        border-radius: 10px;
+        background: rgba(0, 0, 0, 0.65);
+        color: white;
+        display: inline-block;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Main renderer canvas. -->
+    <canvas id="c"></canvas>
+
+    <!-- Hidden DOM UI that becomes an XR HTMLMesh. -->
+    <div id="xrHudSource">
+      <button id="togglePassthrough">Passthrough: ON</button>
+    </div>
+
+    <!-- ES module shim for import-map compatibility. -->
+    <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
+
+    <!-- Import map for Three.js and addon modules. -->
+    <script type="importmap">
+      {
+        "imports": {
+          
+          "three": "https://unpkg.com/three@0.171.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.171.0/examples/jsm/"
+        }
+      }
+    </script>
+
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+      import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+      import { VRButton } from 'three/addons/webxr/VRButton.js';
+      import { ARButton } from 'three/addons/webxr/ARButton.js';
+      import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+      import { InteractiveGroup } from 'three/addons/interactive/InteractiveGroup.js';
+      import { HTMLMesh } from 'three/addons/interactive/HTMLMesh.js';
+
+      // Initializes renderer, scene graph, XR input, UI, IK, and the render loop.
+      function main() {
+        const canvas = document.querySelector('#c');
+        const passthroughBtn = document.getElementById('togglePassthrough');
+
+        // ============================================================
+        // RENDERER
+        // ============================================================
+        // Renderer uses alpha so AR passthrough-style mode can show transparent background.
+        const renderer = new THREE.WebGLRenderer({
+          canvas,
+          antialias: true,
+          alpha: true
+        });
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.xr.enabled = true;
+
+        // Keep a fallback VR entry button available on devices without AR support.
+        document.body.appendChild(VRButton.createButton(renderer));
+
+        // Add an AR button requesting DOM overlay support.
+        document.body.appendChild(
+          ARButton.createButton(renderer, {
+            optionalFeatures: ['dom-overlay'],
+            domOverlay: { root: document.body }
+          })
+        );
+        document.body.appendChild(VRButton.createButton(renderer));
+
+        // Runtime XR button selection: prefer AR (with DOM overlay), otherwise VR.
+        // Chooses AR button when available; falls back to VR otherwise.
+        async function setupXRButton() {
+        if (!navigator.xr) {
+          console.warn('WebXR not available in this browser.');
+            document.body.appendChild(VRButton.createButton(renderer));
+            return;
+          }
+
+          let arSupported = false;
+
+          try {
+            arSupported = await navigator.xr.isSessionSupported('immersive-ar');
+          } catch (e) {
+            console.warn('Could not check immersive-ar support:', e);
+          }
+
+          if (arSupported) {
+            console.log('immersive-ar supported: using ARButton');
+
+            document.body.appendChild(
+              ARButton.createButton(renderer, {
+                optionalFeatures: ['dom-overlay'],
+                domOverlay: { root: document.body }
+              })
+            );
+          } else {
+            console.log('immersive-ar not supported: using VRButton');
+
+            document.body.appendChild(
+              VRButton.createButton(renderer)
+            );
+          }
+        }
+
+        setupXRButton();
+
+        // ============================================================
+        // CAMERA
+        // ============================================================
+        // Desktop camera for non-XR viewing.
+        const camera = new THREE.PerspectiveCamera(75, 2, 0.1, 100);
+        camera.position.set(3.0, 2.0, 4.5);
+        camera.lookAt(0, 1, 0);
+
+        // OrbitControls are used only outside XR.
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 1, 0);
+        controls.update();
+
+        // ============================================================
+        // SCENE + WORLD
+        // ============================================================
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x888888);
+
+        // World offset applied when an XR session starts (acts like XR "spawn point").
+        // Moving/rotating `world` changes where the virtual scene appears relative to the headset.
+        const xrSpawn = {
+          x: 0,
+          y: -1.65,
+          z: -1.25,
+          yaw: -Math.PI / 2,
+          pitch: -0.12
+        };
+
+        // Root group for the virtual scene. This is shifted/rotated for XR alignment.
+        const world = new THREE.Group();
+        world.position.set(xrSpawn.x, xrSpawn.y, xrSpawn.z);
+        world.rotation.set(xrSpawn.pitch, xrSpawn.yaw, 0);
+        scene.add(world);
+
+        // only things we want to hide in passthrough-style mode
+        // The virtual room is separate so passthrough mode can hide it while leaving table/robot visible.
+        const roomGroup = new THREE.Group();
+        world.add(roomGroup);
+
+        // State flag for AR passthrough-style display.
+        const xrView = {
+          passthroughStyle: true
+        };
+
+        // ============================================================
+        // LIGHTING
+        // ============================================================
+        // Ambient light for general visibility.
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.35);
+        scene.add(ambientLight);
+
+        // Main spotlight above the table.
+        const spotLight = new THREE.SpotLight(0xfff5e0, 6);
+        spotLight.position.set(0, 2.8, 0);
+        spotLight.angle = Math.PI / 7;
+        spotLight.penumbra = 0.25;
+        spotLight.decay = 1.5;
+        spotLight.castShadow = true;
+        spotLight.shadow.mapSize.set(2048, 2048);
+        spotLight.shadow.bias = -0.001;
+        spotLight.shadow.normalBias = 0.02;
+        spotLight.target.position.set(0, 0.7, 0);
+        world.add(spotLight);
+        world.add(spotLight.target);
+
+        // Small visible lamp marker at the spotlight position.
+        const lampBase = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.04, 0.10, 0.12, 20),
+          new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            emissive: 0xffffcc,
+            emissiveIntensity: 0.6
+          })
+        );
+        lampBase.position.set(0, 2.78, 0);
+        roomGroup.add(lampBase);
+
+        // Optional spotlight helper controlled from the GUI.
+        const spotHelper = new THREE.SpotLightHelper(spotLight);
+        spotHelper.visible = false;
+        scene.add(spotHelper);
+
+        // Low-intensity fill light from the opposite direction.
+        const fillLight = new THREE.DirectionalLight(0x8899cc, 0.3);
+        fillLight.position.set(-4, 6, -4);
+        scene.add(fillLight);
+
+        // ============================================================
+        // ROOM
+        // ============================================================
+        // Simple procedural floor material (no external texture dependency).
+        const floorMat = new THREE.MeshStandardMaterial({
+          color: 0x8b6a42,
+          roughness: 0.82,
+          metalness: 0.08
+        });
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        roomGroup.add(floor);
+
+        // Back wall of the virtual room.
+        const backWall = new THREE.Mesh(
+          new THREE.PlaneGeometry(6, 3),
+          new THREE.MeshStandardMaterial({
+            color: 0xcccccc,
+            side: THREE.DoubleSide
+          })
+        );
+        backWall.position.set(0, 1.5, -3);
+        backWall.receiveShadow = true;
+        roomGroup.add(backWall);
+
+        // Left wall of the virtual room.
+        const leftWall = new THREE.Mesh(
+          new THREE.PlaneGeometry(6, 3),
+          new THREE.MeshStandardMaterial({
+            color: 0xbbbbbb,
+            side: THREE.DoubleSide
+          })
+        );
+        leftWall.rotation.y = Math.PI / 2;
+        leftWall.position.set(-3, 1.5, 0);
+        leftWall.receiveShadow = true;
+        roomGroup.add(leftWall);
+
+        // ============================================================
+        // TABLE
+        // ============================================================
+        // Table dimensions are small because this version is designed for XR scale.
+        const tableWidth = 1.2;
+        const tableDepth = 0.8;
+        const tableThickness = 0.05;
+        const tableHeight = 0.75;
+
+        const tableMat = new THREE.MeshStandardMaterial({
+          color: 0xaaaaaa,
+          metalness: 0.9,
+          roughness: 0.1
+        });
+
+        // Metallic tabletop.
+        const tableTop = new THREE.Mesh(
+          new THREE.BoxGeometry(tableWidth, tableThickness, tableDepth),
+          tableMat
+        );
+        tableTop.position.y = tableHeight;
+        tableTop.castShadow = true;
+        tableTop.receiveShadow = true;
+        world.add(tableTop);
+
+        // Four cylindrical table legs.
+        const legGeo = new THREE.CylinderGeometry(0.03, 0.03, tableHeight, 20);
+        const ox = tableWidth / 2 - 0.08;
+        const oz = tableDepth / 2 - 0.08;
+
+        [[ox, oz], [-ox, oz], [ox, -oz], [-ox, -oz]].forEach(([x, z]) => {
+          const leg = new THREE.Mesh(legGeo, tableMat);
+          leg.position.set(x, tableHeight / 2, z);
+          leg.castShadow = true;
+          leg.receiveShadow = true;
+          world.add(leg);
+        });
+
+        // ============================================================
+        // OBJECTS ON TABLE
+        // ============================================================
+        // Transparent cup on the table.
+        const cupMat = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0.45,
+          roughness: 0.05,
+          metalness: 0.1
+        });
+        const cup = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.06, 0.05, 0.14, 32),
+          cupMat
+        );
+        cup.position.set(0, tableHeight + tableThickness / 2 + 0.07, 0);
+        cup.castShadow = true;
+        world.add(cup);
+
+        // Flat plate on the table.
+        const plateMat = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.3
+        });
+        const plate = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.12, 0.12, 0.02, 32),
+          plateMat
+        );
+        plate.position.set(
+          0.25,
+          tableHeight + tableThickness / 2 + 0.01,
+          0
+        );
+        plate.castShadow = true;
+        plate.receiveShadow = true;
+        world.add(plate);
+
+        // ============================================================
+        // CHAIRS
+        // ============================================================
+        // Chair geometry and materials. Chair creation calls are currently commented out below.
+        const chairSeatGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.05, 24);
+        const chairBackGeo = new THREE.BoxGeometry(0.36, 0.35, 0.04);
+        const chairLegGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.45, 12);
+
+        const chairMat = new THREE.MeshStandardMaterial({
+          color: 0x3a2a1a,
+          roughness: 0.8
+        });
+        const chairLegMat = new THREE.MeshStandardMaterial({
+          color: 0xaaaaaa,
+          metalness: 0.9,
+          roughness: 0.1
+        });
+
+        // Builds and places a simple chair at the requested world position and yaw.
+        function createChair(x, z, rotY) {
+          const group = new THREE.Group();
+
+          // Helper to add a mesh to the chair group with shadows enabled.
+          const addMesh = (geo, mat, px, py, pz) => {
+            const m = new THREE.Mesh(geo, mat);
+            m.position.set(px ?? 0, py ?? 0, pz ?? 0);
+            m.castShadow = true;
+            m.receiveShadow = true;
+            group.add(m);
+            return m;
+          };
+
+          addMesh(chairSeatGeo, chairMat, 0, 0.45, 0);
+          addMesh(chairBackGeo, chairMat, 0, 0.65, -0.16);
+
+          const lx = 0.12, lz = 0.12;
+          [[lx, lz], [-lx, lz], [lx, -lz], [-lx, -lz]].forEach(([cx, cz]) => {
+            addMesh(chairLegGeo, chairLegMat, cx, 0.225, cz);
+          });
+
+          group.position.set(x, 0, z);
+          group.rotation.y = rotY;
+          roomGroup.add(group);
+        }
+
+        // Chair placement examples. Uncomment to show chairs in the room.
+        // createChair(0, 0.95, Math.PI);
+        // createChair(0, -0.95, 0);
+        // createChair(-0.95, 0, Math.PI / 2);
+        // createChair(0.95, 0, -Math.PI / 2);
+
+        // ============================================================
+        // ROBOT
+        // ============================================================
+        // Robot materials.
+        const robotBodyMat = new THREE.MeshStandardMaterial({
+          color: 0x4488cc,
+          metalness: 0.7,
+          roughness: 0.3
+        });
+        const jointMat = new THREE.MeshStandardMaterial({
+          color: 0x222222,
+          metalness: 0.9,
+          roughness: 0.15
+        });
+        const eyeMat = new THREE.MeshStandardMaterial({
+          color: 0x00ffff,
+          emissive: 0x008888,
+          emissiveIntensity: 1.0
+        });
+
+        // Robot root controls the whole robot position and orientation.
+        const robotRoot = new THREE.Group();
+        robotRoot.position.set(1.5, 0, 0);
+        robotRoot.rotation.y = -Math.PI / 2;
+        world.add(robotRoot);
+
+        // Utility helper to create a mesh, set transform, and attach it to a parent.
+        function mkMesh(geo, mat, parent, px = 0, py = 0, pz = 0) {
+          const m = new THREE.Mesh(geo, mat);
+          m.position.set(px, py, pz);
+          m.castShadow = true;
+          m.receiveShadow = true;
+          parent.add(m);
+          return m;
+        }
+
+        // Robot legs.
+        const legH = 0.55;
+        const legRad = 0.07;
+        [-0.10, 0.10].forEach(x => {
+          mkMesh(
+            new THREE.CylinderGeometry(legRad, legRad * 1.2, legH, 16),
+            robotBodyMat,
+            robotRoot,
+            x,
+            legH / 2,
+            0
+          );
+        });
+
+        // Robot hips.
+        const hipsH = 0.22;
+        mkMesh(
+          new THREE.BoxGeometry(0.32, hipsH, 0.24),
+          robotBodyMat,
+          robotRoot,
+          0,
+          legH + hipsH / 2,
+          0
+        );
+
+        // Torso group pivot is located at the top of the hips.
+        const torsoGroup = new THREE.Group();
+        torsoGroup.position.y = legH + hipsH;
+        robotRoot.add(torsoGroup);
+
+        // Torso mesh extends upward from torsoGroup pivot.
+        const torsoH = 0.48;
+        mkMesh(
+          new THREE.BoxGeometry(0.40, torsoH, 0.24),
+          robotBodyMat,
+          torsoGroup,
+          0,
+          torsoH / 2,
+          0
+        );
+
+        // Head group pivot acts like the neck joint.
+        const headGroup = new THREE.Group();
+        headGroup.position.y = torsoH;
+        torsoGroup.add(headGroup);
+        headGroup.add(new THREE.AxesHelper(0.18));
+
+        // Head mesh.
+        const headH = 0.24;
+        mkMesh(
+          new THREE.BoxGeometry(0.24, headH, 0.22),
+          robotBodyMat,
+          headGroup,
+          0,
+          headH / 2,
+          0
+        );
+
+        // Robot eyes.
+        [-0.06, 0.06].forEach(ex => {
+          mkMesh(
+            new THREE.SphereGeometry(0.03, 10, 10),
+            eyeMat,
+            headGroup,
+            ex,
+            headH / 2 + 0.01,
+            0.11
+          );
+        });
+
+        // Robot antennas and glowing antenna balls.
+        [-0.06, 0.06].forEach(ax => {
+          mkMesh(
+            new THREE.CylinderGeometry(0.012, 0.012, 0.12, 8),
+            jointMat,
+            headGroup,
+            ax,
+            headH + 0.06,
+            0
+          );
+          mkMesh(
+            new THREE.SphereGeometry(0.022, 8, 8),
+            eyeMat,
+            headGroup,
+            ax,
+            headH + 0.13,
+            0
+          );
+        });
+
+        // Creates one robot arm rig (shoulder, elbow, hand) and returns its joints.
+        function buildArm(side) {
+          const sign = side === 'left' ? -1 : 1;
+          const shoulderX = sign * (0.40 / 2 + 0.055);
+
+          // Base shoulder abduction angle. This spreads the arms outward from the body.
+          const shoulderBaseZ = sign * 0.35;
+
+          // First shoulder group controls abduction/adduction around z.
+          const shoulderAbdGroup = new THREE.Group();
+          shoulderAbdGroup.position.set(shoulderX, torsoH - 0.08, 0);
+          shoulderAbdGroup.rotation.z = shoulderBaseZ;
+          torsoGroup.add(shoulderAbdGroup);
+
+          // Second shoulder group controls forward/back arm flexion around x.
+          const shoulderGroup = new THREE.Group();
+          shoulderAbdGroup.add(shoulderGroup);
+          shoulderGroup.add(new THREE.AxesHelper(0.14));
+          mkMesh(new THREE.SphereGeometry(0.05, 12, 12), jointMat, shoulderGroup);
+
+          // Upper arm segment.
+          const upperArmH = 0.30;
+          mkMesh(
+            new THREE.BoxGeometry(0.10, upperArmH, 0.10),
+            robotBodyMat,
+            shoulderGroup,
+            0,
+            -upperArmH / 2,
+            0
+          );
+
+          // Elbow group is positioned at the end of the upper arm.
+          const elbowGroup = new THREE.Group();
+          elbowGroup.position.y = -upperArmH;
+          shoulderGroup.add(elbowGroup);
+          elbowGroup.add(new THREE.AxesHelper(0.12));
+          mkMesh(new THREE.SphereGeometry(0.04, 12, 12), jointMat, elbowGroup);
+
+          // Forearm segment.
+          const forearmH = 0.28;
+          mkMesh(
+            new THREE.BoxGeometry(0.08, forearmH, 0.08),
+            robotBodyMat,
+            elbowGroup,
+            0,
+            -forearmH / 2,
+            0
+          );
+
+          // Hand/wrist group at the end of the forearm.
+          const handGroup = new THREE.Group();
+          handGroup.position.y = -forearmH;
+          elbowGroup.add(handGroup);
+          handGroup.add(new THREE.AxesHelper(0.10));
+          mkMesh(
+            new THREE.BoxGeometry(0.14, 0.08, 0.06),
+            robotBodyMat,
+            handGroup,
+            0,
+            -0.04,
+            0
+          );
+
+          // Two simple gripper fingers.
+          [-0.05, 0.05].forEach(fx => {
+            mkMesh(
+              new THREE.BoxGeometry(0.03, 0.08, 0.03),
+              jointMat,
+              handGroup,
+              fx,
+              -0.11,
+              0
+            );
+          });
+
+          elbowGroup.rotation.z = 0.0;
+
+          return { shoulderAbdGroup, shoulderGroup, elbowGroup, handGroup, shoulderBaseZ };
+        }
+
+        // Build both robot arms.
+        const leftArm = buildArm('left');
+        const rightArm = buildArm('right');
+
+        // ============================================================
+        // XR CONTROLLERS
+        // ============================================================
+        const controllerModelFactory = new XRControllerModelFactory();
+
+        // Controller target spaces used for input events and ray interaction.
+        const controller1 = renderer.xr.getController(0);
+        const controller2 = renderer.xr.getController(1);
+        scene.add(controller1);
+        scene.add(controller2);
+
+        // Controller grip spaces used for visible controller models and stable pose tracking.
+        const controllerGrip1 = renderer.xr.getControllerGrip(0);
+        controllerGrip1.add(
+          controllerModelFactory.createControllerModel(controllerGrip1)
+        );
+        scene.add(controllerGrip1);
+
+        const controllerGrip2 = renderer.xr.getControllerGrip(1);
+        controllerGrip2.add(
+          controllerModelFactory.createControllerModel(controllerGrip2)
+        );
+        scene.add(controllerGrip2);
+
+        // Hand/controller mapping. Intentionally reversed per current project preference.
+        const controllerBindings = {
+          left: controllerGrip2,
+          right: controllerGrip1
+        };
+
+        // Update mapping from WebXR handedness events when controllers connect.
+        // Updates logical left/right mapping from WebXR controller handedness events.
+        function setupControllerBinding(source, grip) {
+          source.addEventListener('connected', event => {
+            const handedness = event.data?.handedness;
+            if (handedness === 'left') {
+              controllerBindings.right = grip;
+            } else if (handedness === 'right') {
+              controllerBindings.left = grip;
+            }
+          });
+        }
+
+        setupControllerBinding(controller1, controllerGrip1);
+        setupControllerBinding(controller2, controllerGrip2);
+        setupControllerBinding(controllerGrip1, controllerGrip1);
+        setupControllerBinding(controllerGrip2, controllerGrip2);
+
+        // Returns the currently bound left/right grips with safe fallback mapping.
+        function getBoundControllerGrips() {
+          const leftGrip = controllerBindings.left ?? controllerGrip2;
+          const rightGrip = controllerBindings.right ?? controllerGrip1;
+          if (leftGrip === rightGrip) {
+            return { leftGrip: controllerGrip2, rightGrip: controllerGrip1 };
+          }
+          return { leftGrip, rightGrip };
+        }
+
+        // Visual laser beams used for XR pointing (including UI targeting).
+        const XR_UI_RAY_LENGTH = 2.5;
+        const rayGeometry = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(0, 0, -XR_UI_RAY_LENGTH),
+        ]);
+        const rayMaterial = new THREE.LineBasicMaterial({
+          color: 0x7fd3ff,
+          transparent: true,
+          opacity: 0.95
+        });
+
+        const ray1 = new THREE.Line(rayGeometry, rayMaterial);
+        const ray2 = new THREE.Line(rayGeometry, rayMaterial);
+        controller1.add(ray1);
+        controller2.add(ray2);
+
+        // HTML button rendered as a 3D UI panel that can be clicked in XR.
+        const xrUiGroup = new InteractiveGroup();
+        xrUiGroup.listenToPointerEvents(renderer, camera);
+        xrUiGroup.listenToXRControllerEvents(controller1);
+        xrUiGroup.listenToXRControllerEvents(controller2);
+        scene.add(xrUiGroup);
+
+        // Convert hidden DOM HUD into an interactive 3D mesh.
+        const xrUiMesh = new HTMLMesh(document.getElementById('xrHudSource'));
+        xrUiMesh.position.set(-0.62, 1.14, -0.86);
+        xrUiMesh.rotation.y = Math.PI / 5;
+        xrUiMesh.scale.setScalar(1.3);
+        xrUiMesh.visible = false;
+        xrUiGroup.add(xrUiMesh);
+
+        // Raycaster used as fallback click mechanism for the XR HTMLMesh.
+        const xrUiRaycaster = new THREE.Raycaster();
+        const xrUiRayOrigin = new THREE.Vector3();
+        const xrUiRayDirection = new THREE.Vector3();
+
+        // Fallback click path: trigger press raycasts the XR HTMLMesh and clicks the button.
+        // Trigger fallback for XR UI: raycast from controller and click HUD button on hit.
+        function tryClickXRUi(controller) {
+          if (!renderer.xr.isPresenting || !xrUiMesh.visible) return;
+
+          controller.updateWorldMatrix(true, false);
+          xrUiRayOrigin.setFromMatrixPosition(controller.matrixWorld);
+          xrUiRayDirection.set(0, 0, -1).transformDirection(controller.matrixWorld);
+          xrUiRaycaster.far = XR_UI_RAY_LENGTH;
+          xrUiRaycaster.set(xrUiRayOrigin, xrUiRayDirection);
+
+          const hits = xrUiRaycaster.intersectObject(xrUiMesh, true);
+          if (hits.length > 0) {
+            passthroughBtn.click();
+          }
+        }
+
+        controller1.addEventListener('selectstart', () => tryClickXRUi(controller1));
+        controller2.addEventListener('selectstart', () => tryClickXRUi(controller2));
+
+        // ============================================================
+        // GUI
+        // ============================================================
+        // lil-gui panel for live debugging and scene tuning on desktop.
+        const gui = new GUI({ title: 'Scene Controls' });
+
+        const ambFolder = gui.addFolder('Ambient Light');
+        ambFolder.add(ambientLight, 'intensity', 0, 2, 0.01).name('Intensity');
+        const ambParams = { color: '#ffffff' };
+        ambFolder.addColor(ambParams, 'color').name('Color')
+          .onChange(v => ambientLight.color.set(v));
+
+        const spotFolder = gui.addFolder('Spot Light');
+        spotFolder.add(spotLight, 'intensity', 0, 15, 0.1).name('Intensity');
+        const spotParams = { color: '#fff5e0' };
+        spotFolder.addColor(spotParams, 'color').name('Color')
+          .onChange(v => spotLight.color.set(v));
+        spotFolder.add(spotLight, 'angle', 0.05, Math.PI / 3, 0.01).name('Angle')
+          .onChange(() => spotHelper.update());
+        spotFolder.add(spotLight, 'penumbra', 0, 1, 0.01).name('Penumbra');
+        spotFolder.add(spotLight, 'decay', 0, 3, 0.05).name('Decay');
+        spotFolder.add(spotLight, 'castShadow').name('Cast Shadow');
+
+        // Shadow map size selector. Recreates the shadow map when changed.
+        const shadowSizes = { '512': 512, '1024': 1024, '2048': 2048, '4096': 4096 };
+        const shadowParams = { mapSize: '2048' };
+        spotFolder.add(shadowParams, 'mapSize', Object.keys(shadowSizes)).name('Shadow Map Size')
+          .onChange(v => {
+            const s = shadowSizes[v];
+            spotLight.shadow.mapSize.set(s, s);
+            if (spotLight.shadow.map) {
+              spotLight.shadow.map.dispose();
+              spotLight.shadow.map = null;
+            }
+          });
+        spotFolder.add(spotHelper, 'visible').name('Show Helper');
+
+        const robotFolder = gui.addFolder('Robot Body Material');
+        const robotParams = { color: '#4488cc' };
+        robotFolder.addColor(robotParams, 'color').name('Color')
+          .onChange(v => robotBodyMat.color.set(v));
+        robotFolder.add(robotBodyMat, 'metalness', 0, 1, 0.01).name('Metalness');
+        robotFolder.add(robotBodyMat, 'roughness', 0, 1, 0.01).name('Roughness');
+
+        const jointFolder = gui.addFolder('Robot Joint Material');
+        const jointParams = { color: '#222222' };
+        jointFolder.addColor(jointParams, 'color').name('Color')
+          .onChange(v => jointMat.color.set(v));
+        jointFolder.add(jointMat, 'metalness', 0, 1, 0.01).name('Metalness');
+        jointFolder.add(jointMat, 'roughness', 0, 1, 0.01).name('Roughness');
+
+        const eyeFolder = gui.addFolder('Robot Eyes / Antennas');
+        const eyeParams = { color: '#00ffff', emissive: '#008888' };
+        eyeFolder.addColor(eyeParams, 'color').name('Color')
+          .onChange(v => eyeMat.color.set(v));
+        eyeFolder.addColor(eyeParams, 'emissive').name('Emissive')
+          .onChange(v => eyeMat.emissive.set(v));
+        eyeFolder.add(eyeMat, 'emissiveIntensity', 0, 3, 0.05).name('Emissive Intensity');
+
+        const tableFolder = gui.addFolder('Table Material');
+        tableFolder.add(tableMat, 'metalness', 0, 1, 0.01).name('Metalness');
+        tableFolder.add(tableMat, 'roughness', 0, 1, 0.01).name('Roughness');
+
+        const floorFolder = gui.addFolder('Floor Material');
+        floorFolder.add(floorMat, 'roughness', 0, 1, 0.01).name('Roughness');
+        floorFolder.add(floorMat, 'metalness', 0, 1, 0.01).name('Metalness');
+
+        // Tele-operation tuning parameters for mapping controller motion to robot IK.
+        const teleop = {
+          enabled: true,
+          headTrackXR: false,
+          ikReachScale: 1.0,
+          ikInputGain: 1.4,
+          shoulderLiftGain: 1.9,
+          controllerHeightOffset: 0.0,
+          controllerReachOffset: -0.08,
+          shoulderAbductionGain: 0.55,
+          showXRControllers: true
+        };
+
+        const xrFolder = gui.addFolder('XR Tele-op');
+
+        // Stores neutral controller positions captured during calibration.
+        const teleopCalib = {
+          leftController: null,
+          rightController: null
+        };
+
+        // Captures current controller pose as neutral so later deltas drive the robot arms.
+        // Stores current controller poses as tele-op neutral references for delta mapping.
+        function calibrateTeleopNeutralPose() {
+          if (!renderer.xr.isPresenting) return;
+
+          const { leftGrip, rightGrip } = getBoundControllerGrips();
+          torsoGroup.updateWorldMatrix(true, false);
+          leftGrip.updateWorldMatrix(true, false);
+          rightGrip.updateWorldMatrix(true, false);
+
+          leftGrip.getWorldPosition(tmpWorld1);
+          rightGrip.getWorldPosition(tmpWorld2);
+          teleopCalib.leftController = worldToTorsoLocal(tmpWorld1);
+          teleopCalib.rightController = worldToTorsoLocal(tmpWorld2);
+        }
+
+        xrFolder.add(teleop, 'enabled').name('Enable Tele-op')
+          .onChange(v => {
+            if (v) {
+              setTimeout(calibrateTeleopNeutralPose, 250);
+            }
+          });
+        xrFolder.add(teleop, 'headTrackXR').name('Track Head');
+        xrFolder.add(teleop, 'ikReachScale', 0.7, 1.2, 0.01).name('Reach Scale');
+        xrFolder.add(teleop, 'ikInputGain', 0.8, 3.0, 0.01).name('Input Gain');
+        xrFolder.add(teleop, 'shoulderLiftGain', 1.0, 3.0, 0.01).name('Shoulder Lift Gain');
+        xrFolder.add(teleop, 'controllerHeightOffset', -0.5, 0.5, 0.01).name('Controller Y Offset');
+        xrFolder.add(teleop, 'controllerReachOffset', -0.2, 0.25, 0.01).name('Controller Reach Offset');
+        xrFolder.add(teleop, 'shoulderAbductionGain', 0, 1.5, 0.01).name('Shoulder Abduction');
+        xrFolder.add({ recalibrate: calibrateTeleopNeutralPose }, 'recalibrate').name('Recalibrate Pose');
+        xrFolder.add(teleop, 'showXRControllers').name('Show Controllers')
+          .onChange(v => {
+            controllerGrip1.visible = v;
+            controllerGrip2.visible = v;
+            controller1.visible = v;
+            controller2.visible = v;
+          });
+
+        // GUI controls for shifting the virtual world relative to the XR user.
+        const worldFolder = gui.addFolder('XR World Offset');
+        const worldParams = {
+          x: world.position.x,
+          y: world.position.y,
+          z: world.position.z
+        };
+        worldFolder.add(worldParams, 'x', -3, 3, 0.01).name('World X')
+          .onChange(v => world.position.x = v);
+        worldFolder.add(worldParams, 'y', -2, 2, 0.01).name('World Y')
+          .onChange(v => world.position.y = v);
+        worldFolder.add(worldParams, 'z', -5, 1, 0.01).name('World Z')
+          .onChange(v => world.position.z = v);
+
+        // ============================================================
+        // HELPERS / IK
+        // ============================================================
+        // Arm segment lengths used by the two-bone IK solver.
+        const UPPER_ARM_LEN = 0.30;
+        const FOREARM_LEN = 0.28;
+        const Z_AXIS = new THREE.Vector3(0, 0, 1);
+
+        // Temporary vectors reused every frame to reduce allocations.
+        const tmpWorld = new THREE.Vector3();
+        const tmpWorld1 = new THREE.Vector3();
+        const tmpWorld2 = new THREE.Vector3();
+
+        // Clamps a scalar value to a closed interval.
+        function clamp(v, lo, hi) {
+          return Math.max(lo, Math.min(hi, v));
+        }
+
+        // Converts world-space controller/head points into torso-local coordinates.
+        // IK is easier when targets are expressed relative to the robot torso.
+        function worldToTorsoLocal(worldPos) {
+          return torsoGroup.worldToLocal(worldPos.clone());
+        }
+
+        // Two-bone IK solver (shoulder + elbow) driven by XR controller target.
+        // Solves per-frame two-bone IK for one arm from XR controller target input.
+        function solveArmIK(arm, targetWorld, side) {
+          const sideSign = side === 'left' ? -1 : 1;
+
+          // Convert controller target from world coordinates into robot torso-local coordinates.
+          const targetTorsoRaw = worldToTorsoLocal(targetWorld);
+
+          // Select the stored neutral controller pose for this side.
+          const calibratedController =
+            side === 'left' ? teleopCalib.leftController : teleopCalib.rightController;
+          const totalArmLen = UPPER_ARM_LEN + FOREARM_LEN;
+          const neutralReach = totalArmLen * teleop.ikReachScale * 0.88;
+
+          // Default target starts in a natural relaxed direction below the shoulder.
+          const targetTorso = arm.shoulderAbdGroup.position
+            .clone()
+            .add(new THREE.Vector3(0, -neutralReach, 0));
+
+          if (calibratedController) {
+            // Use controller movement relative to calibrated pose.
+            const controllerDelta = targetTorsoRaw
+              .sub(calibratedController);
+            controllerDelta.y += teleop.controllerHeightOffset;
+            controllerDelta.multiplyScalar(teleop.ikInputGain);
+            controllerDelta.y *= teleop.shoulderLiftGain;
+            targetTorso.add(controllerDelta);
+          } else {
+            // Fallback before calibration: use raw controller local position.
+            targetTorsoRaw.y += teleop.controllerHeightOffset;
+            targetTorso.copy(targetTorsoRaw);
+          }
+
+          // Apply reach offset along the shoulder-to-target direction.
+          const shoulderPos = arm.shoulderAbdGroup.position.clone();
+          const reachVec = targetTorso.clone().sub(shoulderPos);
+          const reachLen = reachVec.length();
+          if (reachLen > 0.0001 && Math.abs(teleop.controllerReachOffset) > 0.0001) {
+            targetTorso.addScaledVector(reachVec, teleop.controllerReachOffset / reachLen);
+          }
+
+          // Vector from shoulder to target in torso-local space.
+          const v = targetTorso.sub(shoulderPos);
+
+          // Compute shoulder abduction/adduction based on lateral controller movement.
+          const lateral = sideSign * v.x;
+          const shoulderAbAd = Math.atan2(lateral, Math.max(0.08, Math.abs(v.y)));
+          const abdDelta = THREE.MathUtils.clamp(
+            shoulderAbAd * teleop.shoulderAbductionGain,
+            -0.8,
+            0.8
+          );
+          const abdZ = arm.shoulderBaseZ + sideSign * abdDelta;
+          arm.shoulderAbdGroup.rotation.z = THREE.MathUtils.clamp(abdZ, -2.2, 2.2);
+
+          // Undo abduction rotation so flexion IK can be solved in a simpler 2D plane.
+          const vFlex = v.clone().applyAxisAngle(Z_AXIS, -arm.shoulderAbdGroup.rotation.z);
+          const horizontal = Math.sqrt(vFlex.x * vFlex.x + vFlex.z * vFlex.z);
+          const verticalDown = -vFlex.y;
+          let d = Math.sqrt(horizontal * horizontal + verticalDown * verticalDown);
+
+          // Clamp target distance so the arm never tries to solve impossible lengths.
+          const maxReach = totalArmLen * teleop.ikReachScale;
+          const minReach = Math.abs(UPPER_ARM_LEN - FOREARM_LEN) + 0.02;
+          d = clamp(d, minReach, maxReach - 0.001);
+
+          // Law of cosines for elbow angle.
+          const cosElbow =
+            (UPPER_ARM_LEN * UPPER_ARM_LEN +
+              FOREARM_LEN * FOREARM_LEN -
+              d * d) /
+            (2 * UPPER_ARM_LEN * FOREARM_LEN);
+
+          const elbowInterior = Math.acos(clamp(cosElbow, -1, 1));
+          const elbowX = -(Math.PI - elbowInterior);
+
+          // Law of cosines for shoulder contribution.
+          const cosShoulder =
+            (UPPER_ARM_LEN * UPPER_ARM_LEN +
+              d * d -
+              FOREARM_LEN * FOREARM_LEN) /
+            (2 * UPPER_ARM_LEN * d);
+
+          const shoulderOffset = Math.acos(clamp(cosShoulder, -1, 1));
+
+          // Direction from shoulder to target.
+          const targetAngle = Math.atan2(horizontal, verticalDown);
+          const shoulderX = -(targetAngle - shoulderOffset);
+
+          // Apply final shoulder and elbow rotations with safety clamps.
+          arm.shoulderGroup.rotation.x = THREE.MathUtils.clamp(shoulderX, -3.0, 2.6);
+          arm.shoulderGroup.rotation.y = 0;
+          arm.elbowGroup.rotation.x = THREE.MathUtils.clamp(elbowX, -3.05, 0.15);
+        }
+
+        // Toggles room/background visibility based on AR passthrough mode state.
+        // Applies passthrough visual mode by toggling scene background and room visibility.
+        function applyPassthroughMode(isAR) {
+          const usePassthroughStyle = isAR && xrView.passthroughStyle;
+
+          // Transparent background in AR passthrough mode, solid grey otherwise.
+          scene.background = usePassthroughStyle
+            ? null
+            : new THREE.Color(0x888888);
+
+          // Hide only the room shell in passthrough mode; table and robot remain visible.
+          roomGroup.visible = !usePassthroughStyle;
+
+          passthroughBtn.textContent = `Passthrough: ${usePassthroughStyle ? 'ON' : 'OFF'}`;
+        }
+
+        // DOM/XR button toggles passthrough-style mode.
+        passthroughBtn.addEventListener('click', () => {
+          xrView.passthroughStyle = !xrView.passthroughStyle;
+
+          const isXR = renderer.xr.isPresenting;
+          const blendMode = renderer.xr.getEnvironmentBlendMode?.();
+          const isAR = isXR && blendMode === 'alpha-blend';
+
+          applyPassthroughMode(isAR);
+        });
+
+        // ============================================================
+        // XR SESSION ADJUSTMENT
+        // ============================================================
+        // Apply XR spawn offset and show XR-specific helpers when entering session.
+        renderer.xr.addEventListener('sessionstart', () => {
+          world.position.set(xrSpawn.x, xrSpawn.y, xrSpawn.z);
+          world.rotation.set(xrSpawn.pitch, xrSpawn.yaw, 0);
+          worldParams.x = world.position.x;
+          worldParams.y = world.position.y;
+          worldParams.z = world.position.z;
+
+          controllerGrip1.visible = teleop.showXRControllers;
+          controllerGrip2.visible = teleop.showXRControllers;
+          controller1.visible = teleop.showXRControllers;
+          controller2.visible = teleop.showXRControllers;
+
+          const blendMode = renderer.xr.getEnvironmentBlendMode?.();
+          const isAR = blendMode === 'alpha-blend';
+
+          xrUiMesh.visible = true;
+          applyPassthroughMode(isAR);
+
+          // Calibrate after a short delay so controller poses have time to become valid.
+          setTimeout(calibrateTeleopNeutralPose, 250);
+        });
+        
+
+        // Restore normal background/room visibility when leaving XR.
+        renderer.xr.addEventListener('sessionend', () => {
+          xrUiMesh.visible = false;
+          roomGroup.visible = true;
+          scene.background = new THREE.Color(0x888888);
+        });
+
+        // Debug logging for enabled WebXR features.
+        renderer.xr.addEventListener('sessionstart', () => {
+          const session = renderer.xr.getSession();
+          console.log('enabledFeatures:', session.enabledFeatures);
+          console.log('domOverlayState:', session.domOverlayState);
+          console.log('environmentBlendMode:', session.environmentBlendMode);
+        });
+
+        // Additional debug logging for DOM overlay state.
+        renderer.xr.addEventListener('sessionstart', () => {
+          const session = renderer.xr.getSession();
+          console.log('domOverlayState:', session.domOverlayState);
+        });
+
+        // ============================================================
+        // RENDER LOOP
+        // ============================================================
+        // Keeps renderer resolution in sync with canvas display size.
+        function resizeRendererToDisplaySize(renderer) {
+          const canvas = renderer.domElement;
+          const w = canvas.clientWidth;
+          const h = canvas.clientHeight;
+          const needResize = canvas.width !== w || canvas.height !== h;
+          if (needResize) renderer.setSize(w, h, false);
+          return needResize;
+        }
+
+        // Main animation loop: non-XR idle animation or XR tele-op update each frame.
+        // Main frame update: idle animation in non-XR, IK tele-op when XR is active.
+        function render() {
+          // Keep camera aspect correct after browser resize.
+          if (resizeRendererToDisplaySize(renderer)) {
+            camera.aspect = canvas.clientWidth / canvas.clientHeight;
+            camera.updateProjectionMatrix();
+          }
+   
+
+          const t = Date.now() * 0.001;
+
+          const isXR = renderer.xr.isPresenting;
+          const blendMode = renderer.xr.getEnvironmentBlendMode?.();
+          const isAR = isXR && blendMode === 'alpha-blend';
+
+          // Continuously apply passthrough state so AR/VR mode stays visually consistent.
+          applyPassthroughMode(isAR);
+
+          if (!isXR || !teleop.enabled) {
+            // Non-XR idle animation: head moves and right arm performs a simple sequence.
+            headGroup.rotation.y = Math.sin(t * 0.8) * 0.4;
+
+            const cycle = (t * 0.1) % 1;
+            let raise = 0;
+            let bend = 0;
+            let twist = 0;
+
+            if (cycle < 0.25) {
+              const p = cycle / 0.25;
+              raise = -p * 1.0;
+            } else if (cycle < 0.5) {
+              const p = (cycle - 0.25) / 0.25;
+              raise = -1.0;
+              bend = p * 0.9;
+            } else if (cycle < 0.75) {
+              const p = (cycle - 0.5) / 0.25;
+              raise = -1.0;
+              bend = 0.9;
+              twist = Math.sin(p * Math.PI * 2) * 0.5;
+            } else {
+              const p = (cycle - 0.75) / 0.25;
+              raise = -1.0 * (1 - p);
+              bend = 0.9 * (1 - p);
+            }
+
+            rightArm.shoulderGroup.rotation.x = raise;
+            rightArm.elbowGroup.rotation.x = -bend;
+            rightArm.shoulderGroup.rotation.y = 0;
+            rightArm.shoulderAbdGroup.rotation.z = rightArm.shoulderBaseZ;
+          } else {
+            // XR tele-operation: read controller positions and solve IK for both robot arms.
+            const { leftGrip, rightGrip } = getBoundControllerGrips();
+            torsoGroup.updateWorldMatrix(true, false);
+            leftGrip.updateWorldMatrix(true, false);
+            rightGrip.updateWorldMatrix(true, false);
+
+            leftGrip.getWorldPosition(tmpWorld1);
+            rightGrip.getWorldPosition(tmpWorld2);
+
+            solveArmIK(leftArm, tmpWorld1, 'left');
+            solveArmIK(rightArm, tmpWorld2, 'right');
+
+            // Optional head tracking: rotate robot head toward headset position.
+            if (teleop.headTrackXR) {
+              const xrCam = renderer.xr.getCamera();
+              xrCam.getWorldPosition(tmpWorld);
+              const headLocal = torsoGroup.worldToLocal(tmpWorld.clone());
+
+              headGroup.rotation.y = THREE.MathUtils.clamp(
+                Math.atan2(headLocal.x, Math.max(0.0001, headLocal.z)),
+                -Math.PI / 2,
+                Math.PI / 2
+              );
+            }
+          }
+
+          // Keep spotlight helper updated if visible.
+          if (spotHelper.visible) spotHelper.update();
+
+          // Disable OrbitControls during XR because headset/controller tracking controls the view.
+          controls.enabled = !renderer.xr.isPresenting;
+          if (controls.enabled) controls.update();
+
+          renderer.render(scene, camera);
+        }
+
+        // XR-compatible animation loop.
+        renderer.setAnimationLoop(render);
+      }
+
+      main();
+    </script>
+  </body>
+</html>
